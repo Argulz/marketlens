@@ -85,7 +85,7 @@ Ajoutez/modifiez vos clés API dans le fichier (ex: `GEMINI_API_KEY`). Sauvegard
 
 ```bash
 # Lancer le serveur avec Uvicorn
-uvicorn backend.app:app --host 0.0.0.0 --port 8000
+uvicorn backend.app:app --host 0.0.0.0 --port 8001
 ```
 - Vérifiez qu'il n'y a pas d'erreur au démarrage.
 - Arrêtez avec `Ctrl+C`.
@@ -95,9 +95,9 @@ uvicorn backend.app:app --host 0.0.0.0 --port 8000
 ## 🔥 Étape 7 : Pare-feu (UFW)
 
 ```bash
-# Autoriser le port SSH et le port 8000
+# Autoriser le port SSH et le port 8001
 ufw allow 22/tcp
-ufw allow 8000/tcp
+ufw allow 8001/tcp
 ufw enable
 ```
 
@@ -122,7 +122,7 @@ User=root
 WorkingDirectory=/opt/marketlens
 Environment="PATH=/opt/marketlens/venv/bin"
 # Lancement de l'application via uvicorn
-ExecStart=/opt/marketlens/venv/bin/uvicorn backend.app:app --host 127.0.0.1 --port 8000
+ExecStart=/opt/marketlens/venv/bin/uvicorn backend.app:app --host 127.0.0.1 --port 8001
 Restart=always
 RestartSec=10
 
@@ -155,7 +155,7 @@ server {
     server_name VOTRE_NOM_DE_DOMAINE_OU_IP;
 
     location / {
-        proxy_pass http://127.0.0.1:8000;
+        proxy_pass http://127.0.0.1:8001;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
@@ -173,4 +173,4 @@ systemctl restart nginx
 
 ## 🎉 C'est prêt !
 
-Votre API MarketLens est désormais accessible sur `http://VOTRE_IP/docs` (ou port 8000 si pas de Nginx).
+Votre API MarketLens est désormais accessible sur `http://VOTRE_IP/docs` (ou port 8001 si pas de Nginx).
