@@ -1,0 +1,49 @@
+{
+  "id": "4460c8b832",
+  "products": [
+    {
+      "label": "Chemise en flanelle marron foncé",
+      "x": 248,
+      "y": 355,
+      "width": 300,
+      "height": 650,
+      "category": "textile",
+      "description": "sdvevvrbrvdvd",
+      "price": "200"
+    },
+    {
+      "label": "Chemise en flanelle marron et ocre",
+      "x": 345,
+      "y": 448,
+      "width": 350,
+      "height": 700,
+      "category": "textile",
+      "description": "vvvcs",
+      "price": "100"
+    },
+    {
+      "label": "Chemise en flanelle bleu canard",
+      "x": 442,
+      "y": 541,
+      "width": 400,
+      "height": 750,
+      "category": "textile",
+      "description": "pkok",
+      "price": "300"
+    },
+    {
+      "label": "Chemise en flanelle à carreaux noir et crème",
+      "x": 634,
+      "y": 628,
+      "width": 400,
+      "height": 650,
+      "category": "textile",
+      "description": "88dffgdg",
+      "price": "500"
+    }
+  ],
+  "merchant_phone": "45816599",
+  "merchant_name": "Regin",
+  "merchant_whatsapp": "22995206533",
+  "created_at": 1772644804.455447
+}

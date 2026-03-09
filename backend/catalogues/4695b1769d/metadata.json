@@ -1,0 +1,57 @@
+{
+  "id": "4695b1769d",
+  "products": [
+    {
+      "label": "Jeans bleu",
+      "x": 204,
+      "y": 323,
+      "width": 376,
+      "height": 562,
+      "category": "textile",
+      "description": "djbhiudkvmwidvidsùvjefkdùv,fkblnsgjlbfnmdjblmndfjkbndfjkbdkbfjkbndkjbn",
+      "price": "500"
+    },
+    {
+      "label": "Jeans bleu marine",
+      "x": 369,
+      "y": 421,
+      "width": 374,
+      "height": 578,
+      "category": "textile",
+      "description": "djbhiudkvmwidvidsùvjef",
+      "price": "400"
+    },
+    {
+      "label": "Jeans bleu délavé",
+      "x": 496,
+      "y": 515,
+      "width": 328,
+      "height": 578,
+      "category": "textile",
+      "description": "djbhiudkvmwidvidsùvjef",
+      "price": "350"
+    },
+    {
+      "label": "Jeans gris",
+      "x": 643,
+      "y": 592,
+      "width": 378,
+      "height": 560,
+      "category": "textile",
+      "description": "djbhiudkvmwidvidsùvjef",
+      "price": "250"
+    },
+    {
+      "label": "Jeans noir",
+      "x": 779,
+      "y": 675,
+      "width": 388,
+      "height": 556,
+      "category": "textile",
+      "description": "djbhiudkvmwidvidsùvjef",
+      "price": "150"
+    }
+  ],
+  "merchant_phone": "",
+  "created_at": 1772575875.8790734
+}

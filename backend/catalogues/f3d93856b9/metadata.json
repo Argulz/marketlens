@@ -1,0 +1,74 @@
+{
+  "id": "f3d93856b9",
+  "products": [
+    {
+      "label": "Jean",
+      "x": 231,
+      "y": 500,
+      "width": 463,
+      "height": 1000,
+      "category": "textile",
+      "description": "dgrgtr",
+      "price": "20",
+      "sizes": [
+        "M",
+        "X"
+      ],
+      "colors": [
+        "Rouge"
+      ]
+    },
+    {
+      "label": "Jean",
+      "x": 417,
+      "y": 556,
+      "width": 463,
+      "height": 889,
+      "category": "textile",
+      "description": "1fgngff",
+      "price": "1",
+      "sizes": [],
+      "colors": []
+    },
+    {
+      "label": "Jean",
+      "x": 579,
+      "y": 611,
+      "width": 417,
+      "height": 778,
+      "category": "textile",
+      "description": "hrhtgfg",
+      "price": "1",
+      "sizes": [],
+      "colors": []
+    },
+    {
+      "label": "Jean",
+      "x": 694,
+      "y": 667,
+      "width": 370,
+      "height": 667,
+      "category": "textile",
+      "description": "rthfhf",
+      "price": "2",
+      "sizes": [],
+      "colors": []
+    },
+    {
+      "label": "Jean",
+      "x": 824,
+      "y": 722,
+      "width": 352,
+      "height": 556,
+      "category": "textile",
+      "description": "jyjt",
+      "price": "5",
+      "sizes": [],
+      "colors": []
+    }
+  ],
+  "merchant_phone": "45816599",
+  "merchant_name": "Excharge",
+  "merchant_whatsapp": "22995206533",
+  "created_at": 1772838627.2572854
+}

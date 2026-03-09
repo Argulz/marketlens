@@ -1,0 +1,75 @@
+{
+  "id": "f883fc1253",
+  "products": [
+    {
+      "label": "Jean",
+      "x": 200,
+      "y": 450,
+      "width": 400,
+      "height": 900,
+      "category": "textile",
+      "description": "ffvjvfjds",
+      "price": "145",
+      "colors": [
+        "bleu",
+        "rose"
+      ],
+      "sizes": [
+        "x",
+        "m"
+      ]
+    },
+    {
+      "label": "Jean",
+      "x": 350,
+      "y": 525,
+      "width": 400,
+      "height": 850,
+      "category": "textile",
+      "description": "",
+      "price": "1",
+      "colors": [],
+      "sizes": []
+    },
+    {
+      "label": "Jean",
+      "x": 500,
+      "y": 600,
+      "width": 400,
+      "height": 800,
+      "category": "textile",
+      "description": "",
+      "price": "1",
+      "colors": [],
+      "sizes": []
+    },
+    {
+      "label": "Jean",
+      "x": 650,
+      "y": 650,
+      "width": 400,
+      "height": 700,
+      "category": "textile",
+      "description": "",
+      "price": "1",
+      "colors": [],
+      "sizes": []
+    },
+    {
+      "label": "Jean",
+      "x": 800,
+      "y": 700,
+      "width": 400,
+      "height": 600,
+      "category": "textile",
+      "description": "",
+      "price": "1",
+      "colors": [],
+      "sizes": []
+    }
+  ],
+  "merchant_phone": "45816599",
+  "merchant_name": "Excharge",
+  "merchant_whatsapp": "22995206533",
+  "created_at": 1772840365.1830451
+}

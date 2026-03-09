@@ -1,0 +1,48 @@
+{
+  "id": "e7ad613281",
+  "products": [
+    {
+      "label": "Chemise en flanelle marron",
+      "x": 240,
+      "y": 350,
+      "width": 250,
+      "height": 650,
+      "category": "textile",
+      "description": "ehveuvberuifzrbfeveb vnjebivhjvbdeie vnejbdhvjbdej",
+      "price": "1500"
+    },
+    {
+      "label": "Chemise en flanelle ocre",
+      "x": 330,
+      "y": 450,
+      "width": 250,
+      "height": 650,
+      "category": "textile",
+      "description": "ehveuvberuifzrbfeveb ",
+      "price": "2000"
+    },
+    {
+      "label": "Chemise en flanelle bleue",
+      "x": 430,
+      "y": 550,
+      "width": 250,
+      "height": 650,
+      "category": "textile",
+      "description": "ehveuvberuifzrbfeveb ",
+      "price": "2500"
+    },
+    {
+      "label": "Chemise en flanelle à carreaux",
+      "x": 600,
+      "y": 630,
+      "width": 450,
+      "height": 650,
+      "category": "textile",
+      "description": "ehveuvberuifzrbfeveb ",
+      "price": "3000"
+    }
+  ],
+  "merchant_phone": "15246322",
+  "merchant_name": "Regin",
+  "created_at": 1772584358.7946944
+}

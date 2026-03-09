@@ -1,0 +1,57 @@
+{
+  "id": "7e671bc001",
+  "products": [
+    {
+      "label": "Jean bleu clair",
+      "x": 198,
+      "y": 324,
+      "width": 366,
+      "height": 565,
+      "category": "textile",
+      "description": "vdfbdvdfbndbdnbgjkbgbgjn",
+      "price": "300"
+    },
+    {
+      "label": "Jean bleu foncé",
+      "x": 358,
+      "y": 421,
+      "width": 350,
+      "height": 575,
+      "category": "textile",
+      "description": "vdfbdvdfbndbdnbgjkbgbgjn",
+      "price": "400"
+    },
+    {
+      "label": "Jean bleu délavé",
+      "x": 495,
+      "y": 516,
+      "width": 320,
+      "height": 575,
+      "category": "textile",
+      "description": "vdfbdvdfbndbdnbgjkbgbgjn",
+      "price": "500"
+    },
+    {
+      "label": "Jean gris",
+      "x": 655,
+      "y": 592,
+      "width": 380,
+      "height": 555,
+      "category": "textile",
+      "description": "vdfbdvdfbndbdnbgjkbgbgjn",
+      "price": "600"
+    },
+    {
+      "label": "Jean noir",
+      "x": 780,
+      "y": 675,
+      "width": 390,
+      "height": 555,
+      "category": "textile",
+      "description": "vdfbdvdfbndbdnbgjkbgbgjnvnriuvbuvbdfhvjbgzvbqysdcuqsbcgscvghscvgdszvcsgdhvsgdvgjdsjdhvbhfbfhvbfsbdjz",
+      "price": "700"
+    }
+  ],
+  "merchant_phone": "",
+  "created_at": 1772575193.578497
+}

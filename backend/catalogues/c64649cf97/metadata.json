@@ -1,0 +1,52 @@
+{
+  "id": "c64649cf97",
+  "products": [
+    {
+      "label": "Jean bleu clair",
+      "x": 204,
+      "y": 324,
+      "width": 374,
+      "height": 562,
+      "category": "textile",
+      "price": "1100"
+    },
+    {
+      "label": "Jean bleu foncé",
+      "x": 371,
+      "y": 422,
+      "width": 374,
+      "height": 578,
+      "category": "textile",
+      "price": "1200"
+    },
+    {
+      "label": "Jean bleu délavé",
+      "x": 498,
+      "y": 516,
+      "width": 324,
+      "height": 576,
+      "category": "textile",
+      "price": "1300"
+    },
+    {
+      "label": "Jean gris",
+      "x": 656,
+      "y": 593,
+      "width": 380,
+      "height": 560,
+      "category": "textile",
+      "price": "1400"
+    },
+    {
+      "label": "Jean noir",
+      "x": 780,
+      "y": 674,
+      "width": 390,
+      "height": 556,
+      "category": "textile",
+      "price": "1500"
+    }
+  ],
+  "merchant_phone": "",
+  "created_at": 1772573087.1729946
+}

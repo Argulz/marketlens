@@ -1,0 +1,49 @@
+{
+  "id": "08ee0d50ba",
+  "products": [
+    {
+      "label": "Chemise à carreaux 1",
+      "x": 270,
+      "y": 400,
+      "width": 300,
+      "height": 600,
+      "category": "textile",
+      "description": "fvvzvfwbbfwfdvwd",
+      "price": "200"
+    },
+    {
+      "label": "Chemise à carreaux 2",
+      "x": 420,
+      "y": 470,
+      "width": 300,
+      "height": 650,
+      "category": "textile",
+      "description": "",
+      "price": "300"
+    },
+    {
+      "label": "Chemise à carreaux",
+      "x": 570,
+      "y": 550,
+      "width": 300,
+      "height": 700,
+      "category": "textile",
+      "description": "",
+      "price": "200"
+    },
+    {
+      "label": "Chemise à carreaux",
+      "x": 770,
+      "y": 610,
+      "width": 400,
+      "height": 730,
+      "category": "textile",
+      "description": "400",
+      "price": "400"
+    }
+  ],
+  "merchant_phone": "45816599",
+  "merchant_name": "Excel",
+  "merchant_whatsapp": "22995206533",
+  "created_at": 1772647830.7056274
+}

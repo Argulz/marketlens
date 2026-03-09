@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="description"
+        content="MarketLens — Transformez vos produits en catalogue digital interactif grâce à l'IA">
+    <meta name="theme-color" content="#0A0A0F">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>MarketLens — Catalogue Digital Intelligent</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔍</text></svg>">
+</head>
+
+<body>
+    <div class="app-container">
+
+        <!-- Header -->
+        <header class="header">
+            <h1 class="header__logo">MarketLens</h1>
+            <p class="header__tagline">Votre vitrine digitale en un clic</p>
+        </header>
+
+        <!-- ============================================ -->
+        <!-- VIEW 1: CAPTURE                              -->
+        <!-- ============================================ -->
+        <section id="view-capture" class="view active">
+
+            <!-- Upload Zone -->
+            <div class="glass-card">
+                <div id="upload-zone" class="upload-zone">
+                    <span class="upload-zone__icon">📸</span>
+                    <p class="upload-zone__title">Photographiez vos produits</p>
+                    <p class="upload-zone__subtitle">Glissez une image ici ou cliquez pour parcourir</p>
+                    <input type="file" id="file-input" accept="image/*">
+                </div>
+
+                <!-- Camera button (mobile) -->
+                <button id="camera-btn" class="camera-btn">
+                    <span class="camera-btn__icon">📷</span>
+                    Prendre une photo
+                </button>
+                <input type="file" id="camera-input" accept="image/*" capture="environment" style="display: none;">
+            </div>
+
+            <!-- Image Preview -->
+            <div id="preview-container" class="preview-container">
+                <img id="preview-img" src="" alt="Aperçu de l'image">
+            </div>
+
+            <!-- Loader -->
+            <div id="loader" class="loader">
+                <div class="loader__spinner"></div>
+                <p class="loader__text">🤖 Gemini analyse vos produits...</p>
+                <p class="loader__subtext">Détection des articles et de leurs positions</p>
+            </div>
+
+        </section>
+
+        <!-- ============================================ -->
+        <!-- VIEW 2: EDIT (Prix)                          -->
+        <!-- ============================================ -->
+        <section id="view-edit" class="view">
+
+            <div class="glass-card">
+                <h2 class="section-title">
+                    Produits détectés
+                    <span id="product-count" class="section-title__count">0</span>
+                </h2>
+
+                <div id="product-list">
+                    <!-- Dynamically generated product items -->
+                </div>
+
+                <!-- Loader for catalogue generation -->
+                <div id="loader-catalogue" class="loader">
+                    <div class="loader__spinner"></div>
+                    <p class="loader__text">🎨 Génération du catalogue...</p>
+                    <p class="loader__subtext">Annotation de l'image avec vos prix</p>
+                </div>
+
+                <div style="margin: 20px 0; padding-top: 20px; border-top: 1px solid var(--border-glass);">
+                    <h3 style="font-size: 1rem; color: var(--gold); margin-bottom: 12px;">Vos Informations</h3>
+                    <input type="text" id="merchant-name-input" class="modal__input"
+                        placeholder="Nom du Vendeur / Boutique" style="margin-bottom: 10px;">
+                    <input type="tel" id="merchant-phone-input" class="modal__input"
+                        placeholder="N° Mobile Money (ex: 22990000000)" maxlength="15" style="margin-bottom: 10px;">
+                    <input type="tel" id="merchant-whatsapp-input" class="modal__input"
+                        placeholder="N° WhatsApp Vendeur (ex: 22990000000)" maxlength="15" style="margin-bottom: 10px;">
+                </div>
+
+                <button id="btn-generate" class="btn-primary">
+                    ✨ Générer le catalogue
+                </button>
+
+                <button id="btn-restart-edit" class="btn-secondary">
+                    🔄 Nouvelle analyse
+                </button>
+            </div>
+
+        </section>
+
+        <!-- ============================================ -->
+        <!-- VIEW 3: CATALOGUE                            -->
+        <!-- ============================================ -->
+        <section id="view-catalogue" class="view">
+
+            <!-- Annotated image with interactive zones -->
+            <div id="catalogue-image-wrapper" class="catalogue-image-wrapper">
+                <img id="catalogue-img" src="" alt="Catalogue interactif">
+                <!-- Product zones will be dynamically added here -->
+            </div>
+
+            <p class="text-center" style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 16px;">
+                👆 Touchez un produit pour l'ajouter au panier
+            </p>
+
+            <!-- Shopping Cart -->
+            <div id="cart" class="cart" style="display: none;">
+                <div class="cart__header">
+                    <h3 class="cart__title">
+                        🛒 Panier
+                        <span id="cart-badge" class="cart__badge">0</span>
+                    </h3>
+                </div>
+                <ul id="cart-items" class="cart__items">
+                    <!-- Dynamic cart items -->
+                </ul>
+                <div class="cart__total">
+                    <span class="cart__total-label">Total</span>
+                    <span id="cart-total-amount" class="cart__total-amount">0 FCFA</span>
+                </div>
+                <button id="btn-pay" class="btn-pay" disabled>
+                    💳 Payer avec Mobile Money
+                </button>
+            </div>
+
+            <!-- Share Panel -->
+            <div id="share-panel" class="glass-card hidden mt-16">
+                <h3 class="section-title">📤 Partager votre catalogue</h3>
+                <p style="font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 14px;">
+                    Partagez le lien sur vos réseaux — vos clients pourront acheter directement !
+                </p>
+                <div class="share-link-box">
+                    <span id="share-url" class="share-link-box__url">—</span>
+                </div>
+                <div class="share-buttons">
+                    <button id="btn-download" class="share-btn share-btn--download">
+                        📥 Télécharger l'image
+                    </button>
+                    <button id="btn-whatsapp" class="share-btn share-btn--whatsapp">
+                        💬 WhatsApp
+                    </button>
+                    <button id="btn-copy-link" class="share-btn share-btn--copy">
+                        📋 Copier le lien
+                    </button>
+                    <button id="btn-native-share" class="share-btn share-btn--share">
+                        🔗 Partager
+                    </button>
+                </div>
+            </div>
+
+            <button id="btn-restart-catalogue" class="btn-secondary mt-16">
+                🔄 Nouveau catalogue
+            </button>
+
+        </section>
+
+    </div>
+
+    <!-- ============================================ -->
+    <!-- PAYMENT MODAL                                -->
+    <!-- ============================================ -->
+    <div id="payment-modal" class="modal-overlay">
+        <div class="modal">
+            <span class="modal__icon">💳</span>
+            <h3 class="modal__title">Paiement Mobile Money</h3>
+            <p class="modal__message">
+                Entrez vos numéros pour effectuer le paiement via Mojaloop.
+            </p>
+            <input type="tel" id="payer-phone" class="modal__input" placeholder="N° Mobile Money (ex: 22990000000)"
+                maxlength="15">
+            <input type="tel" id="payer-whatsapp" class="modal__input" placeholder="N° WhatsApp (ex: 22990000000)"
+                maxlength="15" style="margin-top:10px;">
+            <input type="hidden" id="merchant-phone" value="22990000000">
+            <button id="btn-confirm-pay" class="btn-pay" style="margin-top: 8px;">
+                Confirmer le paiement
+            </button>
+            <button id="btn-close-modal" class="btn-secondary" style="margin-top: 8px;">
+                Annuler
+            </button>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/app.js"></script>
+    <script src="js/catalogue.js"></script>
+</body>
+
+</html>

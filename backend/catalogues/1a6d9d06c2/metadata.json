@@ -1,0 +1,59 @@
+{
+  "id": "1a6d9d06c2",
+  "products": [
+    {
+      "label": "Pantalon en jean (bleu clair)",
+      "x": 175,
+      "y": 350,
+      "width": 350,
+      "height": 700,
+      "category": "textile",
+      "description": "ergergtsndnhtnf,ghnhn",
+      "price": "100"
+    },
+    {
+      "label": "Pantalon en jean (bleu moyen)",
+      "x": 350,
+      "y": 500,
+      "width": 400,
+      "height": 700,
+      "category": "textile",
+      "description": "ergergtsndnhtnf",
+      "price": "200"
+    },
+    {
+      "label": "Pantalon en jean (bleu délavé)",
+      "x": 500,
+      "y": 625,
+      "width": 400,
+      "height": 750,
+      "category": "textile",
+      "description": "ergergtsndnhtnf",
+      "price": "200"
+    },
+    {
+      "label": "Pantalon en jean (gris)",
+      "x": 650,
+      "y": 650,
+      "width": 400,
+      "height": 700,
+      "category": "textile",
+      "description": "ergergtsndnhtnf",
+      "price": "100"
+    },
+    {
+      "label": "Pantalon en jean (gris foncé)",
+      "x": 800,
+      "y": 700,
+      "width": 400,
+      "height": 600,
+      "category": "textile",
+      "description": "ergergtsndnhtnf",
+      "price": "200"
+    }
+  ],
+  "merchant_phone": "45816599",
+  "merchant_name": "Excharge",
+  "merchant_whatsapp": "22995206533",
+  "created_at": 1772643498.8138754
+}

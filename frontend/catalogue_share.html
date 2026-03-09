@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="description" content="Catalogue de produits — MarketLens">
+    <meta name="theme-color" content="#0A0A0F">
+    <meta property="og:title" content="Catalogue MarketLens">
+    <meta property="og:description" content="Découvrez mes produits et payez directement via Mobile Money !">
+    <meta property="og:image" content="{{IMAGE_URL}}">
+    <meta property="og:type" content="website">
+    <title>Catalogue — MarketLens</title>
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛍️</text></svg>">
+    <link rel="stylesheet" href="/css/style.css">
+    <style>
+        /* Share page specific overrides */
+        .share-header {
+            text-align: center;
+            padding: 20px 0 12px;
+        }
+
+        .share-header__brand {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .share-header__brand a {
+            background: linear-gradient(135deg, var(--gold-light), var(--terracotta-light));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-decoration: none;
+        }
+
+        .share-banner {
+            background: linear-gradient(135deg, rgba(212, 168, 67, 0.1), rgba(45, 106, 79, 0.08));
+            border: 1px solid rgba(212, 168, 67, 0.15);
+            border-radius: var(--radius-md);
+            padding: 12px 16px;
+            text-align: center;
+            margin-bottom: 16px;
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+        }
+
+        .share-banner strong {
+            color: var(--gold);
+        }
+
+        .product-count-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--bg-glass);
+            border: 1px solid var(--border-glass);
+            border-radius: 100px;
+            padding: 6px 14px;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+        }
+
+        .powered-by {
+            text-align: center;
+            padding: 24px 0;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+        }
+
+        .powered-by a {
+            color: var(--gold);
+            text-decoration: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app-container">
+
+        <!-- Header -->
+        <div class="share-header">
+            <span class="share-header__brand">
+                <a href="/">🔍 MarketLens</a>
+            </span>
+        </div>
+
+        <!-- Banner -->
+        <div class="share-banner">
+            👆 <strong>Touchez un produit</strong> pour l'ajouter au panier et payer via Mobile Money
+        </div>
+
+        <!-- Catalogue Image with Interactive Zones -->
+        <div id="catalogue-image-wrapper" class="catalogue-image-wrapper">
+            <img id="catalogue-img" src="{{IMAGE_URL}}" alt="Catalogue de produits">
+        </div>
+
+        <div class="text-center">
+            <span class="product-count-badge" id="product-count-badge">
+                📦 <span id="share-product-count">0</span> produits disponibles
+            </span>
+        </div>
+
+        <!-- Shopping Cart -->
+        <div id="cart" class="cart" style="display: none;">
+            <div class="cart__header">
+                <h3 class="cart__title">
+                    🛒 Panier
+                    <span id="cart-badge" class="cart__badge">0</span>
+                </h3>
+            </div>
+            <ul id="cart-items" class="cart__items"></ul>
+            <div class="cart__total">
+                <span class="cart__total-label">Total</span>
+                <span id="cart-total-amount" class="cart__total-amount">0 FCFA</span>
+            </div>
+            <button id="btn-pay" class="btn-pay" disabled>
+                💳 Payer avec Mobile Money
+            </button>
+        </div>
+
+        <div class="powered-by">
+            Propulsé par <a href="/">MarketLens</a> — Votre vitrine digitale
+        </div>
+    </div>
+
+    <!-- Payment Modal -->
+    <div id="payment-modal" class="modal-overlay">
+        <div class="modal">
+            <button class="modal__close"
+                onclick="document.getElementById('payment-modal').classList.remove('active')">&times;</button>
+            <h3 class="modal__title">Règlement</h3>
+            <p class="modal__message">Saisissez vos informations pour finaliser le paiement.</p>
+
+            <input type="tel" id="payer-phone" class="modal__input"
+                placeholder="Votre n° Mobile Money (ex: 22990000000)" maxlength="15">
+            <input type="tel" id="payer-whatsapp" class="modal__input" placeholder="Votre n° WhatsApp (ex: 22990000000)"
+                maxlength="15" style="margin-top:10px;">
+
+            <div style="margin: 20px 0; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 12px;">
+                <p style="margin:0; color:var(--text-muted); font-size: 0.9rem;">Marchand : <strong
+                        style="color:var(--text-light)" id="display-merchant">...</strong></p>
+            </div>
+            <input type="hidden" id="merchant-phone" value="{{MERCHANT_PHONE}}">
+            <button id="btn-confirm-pay" class="btn-pay" style="margin-top: 8px;">
+                Confirmer le paiement
+            </button>
+            <button id="btn-close-modal" class="btn-secondary" style="margin-top: 8px;">
+                Annuler
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // ---- Données injectées par le serveur ----
+        let PRODUCTS = [];
+        try {
+            // Le serveur injecte une string JSON (ex: "[{...}]")
+            const rawProducts = `{{PRODUCTS_JSON}}`;
+            PRODUCTS = JSON.parse(rawProducts);
+        } catch (e) {
+            console.error("Erreur parsing produits:", e);
+        }
+
+        const CATALOGUE_ID = "{{CATALOGUE_ID}}";
+        const BASE_URL = "{{BASE_URL}}";
+        const MERCHANT_PHONE = "{{MERCHANT_PHONE}}";
+
+        // ---- Cart ----
+        const cart = [];
+
+        // ---- Toast ----
+        function showToast(msg, duration = 3000) {
+            let toast = document.getElementById('toast');
+            if (!toast) {
+                toast = document.createElement('div');
+                toast.id = 'toast';
+                toast.className = 'toast';
+                document.body.appendChild(toast);
+            }
+            toast.textContent = msg;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), duration);
+        }
+
+        // ---- State ----
+        let currentSelectedProduct = null;
+        let currentSelectedZone = null;
+
+        // ---- Render Zones ----
+        function renderZones() {
+            const wrapper = document.getElementById('catalogue-image-wrapper');
+            const img = document.getElementById('catalogue-img');
+            const pricedProducts = PRODUCTS.filter(p => p.price);
+
+            document.getElementById('share-product-count').textContent = pricedProducts.length;
+
+            pricedProducts.forEach((product, index) => {
+                const zone = document.createElement('div');
+                zone.className = 'product-zone';
+                zone.dataset.index = index;
+
+                const left = ((product.x - product.width / 2) / 1000) * 100;
+                const top = ((product.y - product.height / 2) / 1000) * 100;
+                const width = (product.width / 1000) * 100;
+                const height = (product.height / 1000) * 100;
+
+                zone.style.left = `${Math.max(0, left)}%`;
+                zone.style.top = `${Math.max(0, top)}%`;
+                zone.style.width = `${Math.min(100 - left, width)}%`;
+                zone.style.height = `${Math.min(100 - top, height)}%`;
+
+                const tag = document.createElement('span');
+                tag.className = 'product-zone__tag';
+                tag.textContent = `${product.label} — ${product.price} FCFA`;
+                zone.appendChild(tag);
+
+                // Add info button
+                const infoBtn = document.createElement('button');
+                infoBtn.className = 'product-zone__info-btn';
+                infoBtn.innerHTML = 'ℹ️';
+                infoBtn.title = "Voir la description";
+                zone.appendChild(infoBtn);
+
+                // Add glassmorphism description
+                const glassDesc = document.createElement('div');
+                glassDesc.className = 'product-zone__glass-desc';
+
+                const descStr = product.description ? product.description : "Aucune description détaillée.";
+
+                // Build variant selector HTML
+                let variantHTML = '';
+                if (product.colors && product.colors.length > 0) {
+                    variantHTML += `<div class="variant-selector">
+                        <div class="variant-selector__label">🎨 Couleur :</div>
+                        <div class="variant-pills" data-variant="color" data-product-index="${index}">
+                            ${product.colors.map(c => `<span class="variant-pill variant-pill--color" data-value="${c}">${c}</span>`).join('')}
+                        </div>
+                    </div>`;
+                }
+                if (product.sizes && product.sizes.length > 0) {
+                    variantHTML += `<div class="variant-selector">
+                        <div class="variant-selector__label">📐 Taille :</div>
+                        <div class="variant-pills" data-variant="size" data-product-index="${index}">
+                            ${product.sizes.map(s => `<span class="variant-pill variant-pill--size" data-value="${s}">${s}</span>`).join('')}
+                        </div>
+                    </div>`;
+                }
+
+                glassDesc.innerHTML = `
+                    <button class="product-zone__glass-close">✕</button>
+                    <h4>${product.label}</h4>
+                    <p>${descStr}</p>
+                    ${variantHTML}
+                `;
+                zone.appendChild(glassDesc);
+
+                // Wire variant pill selection (toggle)
+                glassDesc.querySelectorAll('.variant-pill').forEach(pill => {
+                    pill.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const container = pill.parentElement;
+                        // Deselect siblings
+                        container.querySelectorAll('.variant-pill').forEach(p => p.classList.remove('selected'));
+                        pill.classList.add('selected');
+                    });
+                });
+
+                // Info button prevents triggering cart and shows description
+                infoBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    // Close others
+                    document.querySelectorAll('.product-zone__glass-desc').forEach(d => {
+                        if (d !== glassDesc) d.classList.remove('active');
+                    });
+                    glassDesc.classList.add('active');
+                });
+
+                // Close button inside glass overlay
+                const closeBtn = glassDesc.querySelector('.product-zone__glass-close');
+                closeBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    glassDesc.classList.remove('active');
+                });
+
+                // Prevent cart add when clicking inside the description text (to allow scrolling/selection)
+                glassDesc.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                });
+
+                // Add to cart on zone click
+                zone.addEventListener('click', () => toggleCart(product, zone, index));
+                wrapper.appendChild(zone);
+            });
+        }
+
+        // ---- Cart Logic ----
+        function toggleCart(product, zoneEl, productIndex) {
+            const idx = cart.findIndex(i => i.label === product.label);
+            if (idx >= 0) {
+                cart.splice(idx, 1);
+                zoneEl.classList.remove('in-cart');
+                showToast(`🗑️ ${product.label} retiré`);
+            } else {
+                // Collect selected variant
+                let selectedColor = '';
+                let selectedSize = '';
+
+                const hasColors = product.colors && product.colors.length > 0;
+                const hasSizes = product.sizes && product.sizes.length > 0;
+
+                if (hasColors) {
+                    const colorPill = document.querySelector(`.variant-pills[data-variant="color"][data-product-index="${productIndex}"] .variant-pill.selected`);
+                    selectedColor = colorPill ? colorPill.dataset.value : '';
+                }
+                if (hasSizes) {
+                    const sizePill = document.querySelector(`.variant-pills[data-variant="size"][data-product-index="${productIndex}"] .variant-pill.selected`);
+                    selectedSize = sizePill ? sizePill.dataset.value : '';
+                }
+
+                // Warn if variants exist but not selected
+                if (hasColors && !selectedColor) {
+                    showToast('🎨 Choisissez une couleur (ℹ️)');
+                    return;
+                }
+                if (hasSizes && !selectedSize) {
+                    showToast('📐 Choisissez une taille (ℹ️)');
+                    return;
+                }
+
+                cart.push({
+                    label: product.label,
+                    price: parseFloat(product.price) || 0,
+                    color: selectedColor,
+                    size: selectedSize,
+                });
+                zoneEl.classList.add('in-cart');
+
+                let extra = '';
+                if (selectedColor) extra += ` • ${selectedColor}`;
+                if (selectedSize) extra += ` • ${selectedSize}`;
+                showToast(`🛒 ${product.label}${extra} ajouté`);
+            }
+            updateCartUI();
+        }
+
+        function updateCartUI() {
+            const cartEl = document.getElementById('cart');
+            const items = document.getElementById('cart-items');
+            const badge = document.getElementById('cart-badge');
+            const total = document.getElementById('cart-total-amount');
+            const btn = document.getElementById('btn-pay');
+
+            if (cart.length === 0) { cartEl.style.display = 'none'; return; }
+
+            cartEl.style.display = 'block';
+            badge.textContent = cart.length;
+            items.innerHTML = '';
+            let sum = 0;
+
+            cart.forEach((item, i) => {
+                sum += item.price;
+                let variantInfo = '';
+                if (item.color) variantInfo += ` <span style="font-size:0.7rem;color:var(--indigo-light);">• ${item.color}</span>`;
+                if (item.size) variantInfo += ` <span style="font-size:0.7rem;color:var(--forest-light);">• ${item.size}</span>`;
+                const li = document.createElement('li');
+                li.className = 'cart__item';
+                li.innerHTML = `
+                    <span class="cart__item-name">${item.label}${variantInfo}</span>
+                    <span class="cart__item-price">${item.price.toLocaleString()} FCFA</span>
+                    <button class="cart__item-remove" data-i="${i}">✕</button>
+                `;
+                items.appendChild(li);
+            });
+
+            items.querySelectorAll('.cart__item-remove').forEach(btn => {
+                btn.addEventListener('click', e => {
+                    const i = parseInt(e.target.dataset.i);
+                    const removed = cart.splice(i, 1)[0];
+                    document.querySelectorAll('.product-zone').forEach(z => {
+                        const tag = z.querySelector('.product-zone__tag');
+                        if (tag && tag.textContent.includes(removed.label)) z.classList.remove('in-cart');
+                    });
+                    updateCartUI();
+                });
+            });
+
+            total.textContent = `${sum.toLocaleString()} FCFA`;
+            btn.disabled = false;
+        }
+
+        // ---- Payment ----
+        document.getElementById('btn-pay').addEventListener('click', () => {
+            document.getElementById('payment-modal').classList.add('active');
+        });
+
+        document.getElementById('btn-close-modal').addEventListener('click', () => {
+            document.getElementById('payment-modal').classList.remove('active');
+        });
+
+        document.getElementById('btn-confirm-pay').addEventListener('click', async () => {
+            const phone = document.getElementById('payer-phone').value.trim();
+            const whatsapp = document.getElementById('payer-whatsapp').value.trim();
+            if (!phone || phone.length < 8) { showToast('⚠️ Numéro invalide'); return; }
+
+            const total = cart.reduce((s, i) => s + i.price, 0);
+            const formData = new FormData();
+            formData.append('payer_msisdn', phone);
+            formData.append('payer_whatsapp', whatsapp);
+            formData.append('payee_msisdn', MERCHANT_PHONE);
+            formData.append('amount', total.toString());
+            formData.append('catalogue_id', CATALOGUE_ID);
+            formData.append('items_json', JSON.stringify(cart));
+
+            try {
+                const res = await fetch(`${BASE_URL}/api/pay`, { method: 'POST', body: formData });
+                const data = await res.json();
+                if (data.success) {
+                    const modal = document.querySelector('#payment-modal .modal');
+                    let receiptHTML = '';
+                    if (data.receipt_id) {
+                        receiptHTML = `<a href="${BASE_URL}/api/receipt/${data.receipt_id}" target="_blank" class="btn-secondary" style="margin-top:10px; text-decoration:none; display:block; text-align:center;">📄 Télécharger la facture</a>`;
+                    }
+
+                    modal.innerHTML = `
+                        <div class="success-check"><span class="success-check__icon">✓</span></div>
+                        <h3 class="modal__title">Paiement réussi !</h3>
+                        <p class="modal__message">
+                            Transfert de <strong>${parseInt(data.transfer.amount).toLocaleString()} ${data.transfer.currency}</strong> effectué.
+                            <br><small style="color:var(--text-muted)">ID: ${data.transfer.transferId}</small>
+                            ${data.transfer.note ? `<br><small style="color:var(--gold)">${data.transfer.note}</small>` : ''}
+                        </p>
+                        ${receiptHTML}
+                        <button class="btn-primary" onclick="location.reload()" style="margin-top:16px;">Fermer</button>
+                    `;
+                } else {
+                    showToast('❌ Échec du paiement');
+                }
+            } catch (e) { showToast(`❌ Erreur: ${e.message}`); }
+        });
+
+        // ---- Init ----
+        const catImg = document.getElementById('catalogue-img');
+        if (catImg.complete) {
+            renderZones();
+        } else {
+            catImg.onload = renderZones;
+        }
+    </script>
+</body>
+
+</html>

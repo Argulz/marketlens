@@ -1,0 +1,49 @@
+{
+  "id": "289233b25a",
+  "products": [
+    {
+      "label": "Chemise à carreaux",
+      "x": 175,
+      "y": 500,
+      "width": 350,
+      "height": 1000,
+      "category": "textile",
+      "description": "",
+      "price": "200"
+    },
+    {
+      "label": "Chemise à carreaux",
+      "x": 325,
+      "y": 500,
+      "width": 350,
+      "height": 1000,
+      "category": "textile",
+      "description": "",
+      "price": "300"
+    },
+    {
+      "label": "Chemise à carreaux",
+      "x": 475,
+      "y": 500,
+      "width": 350,
+      "height": 1000,
+      "category": "textile",
+      "description": "",
+      "price": "200"
+    },
+    {
+      "label": "Chemise à carreaux",
+      "x": 625,
+      "y": 500,
+      "width": 350,
+      "height": 1000,
+      "category": "textile",
+      "description": "",
+      "price": "100"
+    }
+  ],
+  "merchant_phone": "45816599",
+  "merchant_name": "Excharge",
+  "merchant_whatsapp": "22995206533",
+  "created_at": 1772644260.5768929
+}

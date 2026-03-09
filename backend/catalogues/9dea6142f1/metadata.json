@@ -1,0 +1,59 @@
+{
+  "id": "9dea6142f1",
+  "products": [
+    {
+      "label": "Pantalon en jean",
+      "x": 200,
+      "y": 350,
+      "width": 400,
+      "height": 700,
+      "category": "textile",
+      "description": "",
+      "price": "1"
+    },
+    {
+      "label": "Pantalon en jean",
+      "x": 367,
+      "y": 475,
+      "width": 467,
+      "height": 750,
+      "category": "textile",
+      "description": "",
+      "price": "1"
+    },
+    {
+      "label": "Pantalon en jean",
+      "x": 500,
+      "y": 600,
+      "width": 467,
+      "height": 800,
+      "category": "textile",
+      "description": "",
+      "price": "1"
+    },
+    {
+      "label": "Pantalon en jean",
+      "x": 633,
+      "y": 650,
+      "width": 467,
+      "height": 700,
+      "category": "textile",
+      "description": "",
+      "price": "1"
+    },
+    {
+      "label": "Pantalon en jean",
+      "x": 767,
+      "y": 700,
+      "width": 467,
+      "height": 600,
+      "category": "textile",
+      "description": "",
+      "price": "1"
+    }
+  ],
+  "merchant_phone": "45816599",
+  "merchant_name": "Excharge",
+  "merchant_whatsapp": "22995206533",
+  "created_at": 1772835531.8213406
+}

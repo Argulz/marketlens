@@ -1,0 +1,58 @@
+{
+  "id": "863b096dee",
+  "products": [
+    {
+      "label": "Jean bleu clair",
+      "x": 204,
+      "y": 323,
+      "width": 374,
+      "height": 560,
+      "category": "textile",
+      "description": "VVbdfbtbrfgbgffbgd dfgnghnfbdfvxdvdfvdfv",
+      "price": "12000"
+    },
+    {
+      "label": "Jean 2",
+      "x": 371,
+      "y": 421,
+      "width": 371,
+      "height": 575,
+      "category": "textile",
+      "description": "VVbdfbtbrfgbgffbgd ",
+      "price": "13000"
+    },
+    {
+      "label": "Jean 3",
+      "x": 498,
+      "y": 516,
+      "width": 326,
+      "height": 574,
+      "category": "textile",
+      "description": "VVbdfbtbrfgbgffbgd ",
+      "price": "14000"
+    },
+    {
+      "label": "Jean 4",
+      "x": 656,
+      "y": 593,
+      "width": 381,
+      "height": 558,
+      "category": "textile",
+      "description": "VVbdfbtbrfgbgffbgd ",
+      "price": "16000"
+    },
+    {
+      "label": "Jean 9",
+      "x": 780,
+      "y": 674,
+      "width": 389,
+      "height": 552,
+      "category": "textile",
+      "description": "VVbdfbtbrfgbgffbgd ",
+      "price": "15000"
+    }
+  ],
+  "merchant_phone": "45816599",
+  "merchant_name": "Excharge",
+  "created_at": 1772582339.5583305
+}
