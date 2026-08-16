@@ -19,6 +19,8 @@ def health() -> dict[str, str]:
 
 def get_detector() -> ProductDetector:
     settings = get_settings()
+    if not settings.gemini_api_key:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY non configurée")
     return ProductDetector(api_key=settings.gemini_api_key, model=settings.gemini_model)
 
 
@@ -33,5 +35,8 @@ async def detect(
     if len(image_bytes) > get_settings().max_image_bytes:
         raise HTTPException(status_code=413, detail="Image trop volumineuse")
 
-    produits = await detector.detect(image_bytes)
+    try:
+        produits = await detector.detect(image_bytes)
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
     return {"products": produits, "count": len(produits)}

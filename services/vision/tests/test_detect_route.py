@@ -66,3 +66,28 @@ def test_refuse_une_image_trop_volumineuse(client, detecteur, monkeypatch):
         headers=ENTETE,
     )
     assert reponse.status_code == 413
+
+
+class DetecteurEnErreur:
+    async def detect(self, image_bytes: bytes) -> list[dict]:
+        raise RuntimeError("Échec de la détection après 3 tentatives: quota dépassé")
+
+
+def test_renvoie_502_si_le_detecteur_echoue(client):
+    app.dependency_overrides[get_detector] = lambda: DetecteurEnErreur()
+    try:
+        reponse = client.post("/detect", files={"image": IMAGE}, headers=ENTETE)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert reponse.status_code == 502
+    assert "quota dépassé" in reponse.json()["detail"]
+
+
+def test_renvoie_500_si_la_cle_api_est_absente(client, monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    from app.config import get_settings
+    get_settings.cache_clear()
+
+    reponse = client.post("/detect", files={"image": IMAGE}, headers=ENTETE)
+    assert reponse.status_code == 500

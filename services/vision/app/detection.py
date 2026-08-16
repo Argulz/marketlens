@@ -102,9 +102,6 @@ class ProductDetector:
         self.model = model
 
     async def detect(self, image_bytes: bytes) -> list[dict]:
-        if not self.api_key:
-            raise RuntimeError("GEMINI_API_KEY non configurée")
-
         client = genai.Client(api_key=self.api_key)
         mime_type = _detect_mime_type(image_bytes)
         logger.info(f"Envoi à Gemini ({len(image_bytes)} octets, {mime_type}, {self.model})")
