@@ -90,3 +90,48 @@ def _detect_mime_type(image_bytes: bytes) -> str:
 
 def _clamp(value: int, min_val: int, max_val: int) -> int:
     return max(min_val, min(max_val, value))
+
+
+class ProductDetector:
+    """Encapsule l'appel à Gemini. Substituable en test."""
+
+    MAX_RETRIES = 3
+
+    def __init__(self, api_key: str, model: str) -> None:
+        self.api_key = api_key
+        self.model = model
+
+    async def detect(self, image_bytes: bytes) -> list[dict]:
+        if not self.api_key:
+            raise RuntimeError("GEMINI_API_KEY non configurée")
+
+        client = genai.Client(api_key=self.api_key)
+        mime_type = _detect_mime_type(image_bytes)
+        logger.info(f"Envoi à Gemini ({len(image_bytes)} octets, {mime_type}, {self.model})")
+
+        derniere_erreur: Exception | None = None
+        for tentative in range(self.MAX_RETRIES):
+            try:
+                response = client.models.generate_content(
+                    model=self.model,
+                    contents=[
+                        types.Content(parts=[
+                            types.Part(inline_data=types.Blob(
+                                mime_type=mime_type, data=image_bytes)),
+                            types.Part(text=DETECTION_PROMPT),
+                        ])
+                    ],
+                    config=types.GenerateContentConfig(
+                        temperature=0.1, max_output_tokens=4096),
+                )
+                produits = parse_json_response(response.text.strip())
+                valides = validate_products(produits)
+                logger.info(f"Produits détectés: {len(valides)}")
+                return valides
+            except Exception as e:
+                derniere_erreur = e
+                logger.warning(f"Tentative {tentative + 1}/{self.MAX_RETRIES} échouée: {e}")
+
+        raise RuntimeError(
+            f"Échec de la détection après {self.MAX_RETRIES} tentatives: {derniere_erreur}"
+        )
