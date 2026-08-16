@@ -3,6 +3,7 @@ import os
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Response, UploadFile
+from fastapi.concurrency import run_in_threadpool
 
 from app.annotation import annotate_image
 from app.auth import require_service_secret
@@ -26,16 +27,21 @@ def get_detector() -> ProductDetector:
     return ProductDetector(api_key=settings.gemini_api_key, model=settings.gemini_model)
 
 
-@app.post("/detect", dependencies=[Depends(require_service_secret)])
-async def detect(
-    image: UploadFile = File(...),
-    detector: ProductDetector = Depends(get_detector),
-) -> dict:
+async def _lire_image_validee(image: UploadFile) -> bytes:
     image_bytes = await image.read()
     if not image_bytes:
         raise HTTPException(status_code=400, detail="Image vide")
     if len(image_bytes) > get_settings().max_image_bytes:
         raise HTTPException(status_code=413, detail="Image trop volumineuse")
+    return image_bytes
+
+
+@app.post("/detect", dependencies=[Depends(require_service_secret)])
+async def detect(
+    image: UploadFile = File(...),
+    detector: ProductDetector = Depends(get_detector),
+) -> dict:
+    image_bytes = await _lire_image_validee(image)
 
     try:
         produits = await detector.detect(image_bytes)
@@ -49,18 +55,12 @@ async def annotate(
     image: UploadFile = File(...),
     products: str = Form(...),
 ) -> Response:
-    image_bytes = await image.read()
-    if not image_bytes:
-        raise HTTPException(status_code=400, detail="Image vide")
-    if len(image_bytes) > get_settings().max_image_bytes:
-        raise HTTPException(status_code=413, detail="Image trop volumineuse")
+    image_bytes = await _lire_image_validee(image)
 
     try:
         liste_produits = json.loads(products)
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="JSON des produits invalide")
 
-    return Response(
-        content=annotate_image(image_bytes, liste_produits),
-        media_type="image/jpeg",
-    )
+    image_annotee = await run_in_threadpool(annotate_image, image_bytes, liste_produits)
+    return Response(content=image_annotee, media_type="image/jpeg")
