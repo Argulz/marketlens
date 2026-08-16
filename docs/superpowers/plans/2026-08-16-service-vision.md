@@ -892,7 +892,8 @@ récupérables via git show 23a64ee:backend/<fichier>."
 ## Vérification finale du plan
 
 - [ ] `cd services/vision && .venv/Scripts/python -m pytest tests/ -v` → 23 tests passés
-      (la vague de correctifs de revue finale a depuis porté ce compte à 68,
+      (la vague de correctifs de revue finale a depuis porté ce compte à 69 exécutés
+      plus 1 test d'intégration Gemini désélectionné par défaut,
       plus 1 test d'intégration Gemini marqué et désélectionné par défaut)
 - [ ] Le service démarre sur le port 8001 et répond à `GET /health`
 - [ ] `POST /detect` et `POST /annotate` renvoient 401 sans l'en-tête `X-Vision-Secret`
