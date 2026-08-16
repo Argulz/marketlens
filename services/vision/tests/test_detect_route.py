@@ -111,6 +111,18 @@ def test_renvoie_429_si_le_quota_amont_est_depasse(client):
     assert reponse.status_code == 429
 
 
+def test_renvoie_504_si_l_echeance_globale_expire(client):
+    """Gemini n'a pas refusé, il n'a simplement pas répondu à temps :
+    Medusa doit pouvoir distinguer ce cas du 502 (conduites différentes).
+    `test_renvoie_502_si_le_detecteur_echoue` couvre déjà la non-régression :
+    un RuntimeError générique doit continuer à rendre 502, pas 504 — la
+    classe parente ne doit pas être ombrée par ce nouveau except."""
+    from app.detection import DelaiGlobalDepasse
+
+    reponse = _detecte_avec(client, DelaiGlobalDepasse("Échéance globale de 45s dépassée"))
+    assert reponse.status_code == 504
+
+
 def test_renvoie_400_si_le_format_de_l_image_n_est_pas_reconnu(client, detecteur):
     """Un HEIC partait chez Gemini étiqueté « image/jpeg » et brûlait trois
     tentatives avant un 502 indifférencié."""
@@ -129,3 +141,19 @@ def test_renvoie_500_si_la_cle_api_est_absente(client, monkeypatch):
 
     reponse = client.post("/detect", files={"image": IMAGE}, headers=ENTETE)
     assert reponse.status_code == 500
+
+
+def test_get_detector_transmet_les_reglages_de_delai_depuis_l_environnement(monkeypatch):
+    """VISION_DEADLINE_S, VISION_TIMEOUT_MS et VISION_MAX_RETRIES doivent se
+    retrouver, non par défaut, sur l'objet construit — pas seulement lus."""
+    from app.config import get_settings
+    monkeypatch.setenv("VISION_DEADLINE_S", "12")
+    monkeypatch.setenv("VISION_TIMEOUT_MS", "5000")
+    monkeypatch.setenv("VISION_MAX_RETRIES", "7")
+    get_settings.cache_clear()
+
+    detecteur_construit = get_detector()
+
+    assert detecteur_construit.deadline_s == 12
+    assert detecteur_construit.timeout_ms == 5000
+    assert detecteur_construit.max_retries == 7

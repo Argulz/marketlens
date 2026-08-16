@@ -11,6 +11,7 @@ from app.annotation import AnnotationInvalide, annotate_image
 from app.auth import require_service_secret
 from app.config import get_settings
 from app.detection import (
+    DelaiGlobalDepasse,
     FormatImageInvalide,
     ProductDetector,
     QuotaGeminiDepasse,
@@ -24,6 +25,9 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="MarketLens Vision", version="1.0.0")
 
 SERVICE_INDISPONIBLE = "Le service de reconnaissance visuelle est indisponible"
+DELAI_DEPASSE = (
+    "Le délai de traitement de l'image a été dépassé, veuillez réessayer"
+)
 
 
 class ProductOut(BaseModel):
@@ -56,7 +60,13 @@ def get_detector() -> ProductDetector:
     settings = get_settings()
     if not settings.gemini_api_key:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY non configurée")
-    return ProductDetector(api_key=settings.gemini_api_key, model=settings.gemini_model)
+    return ProductDetector(
+        api_key=settings.gemini_api_key,
+        model=settings.gemini_model,
+        deadline_s=settings.vision_deadline_s,
+        timeout_ms=settings.vision_timeout_ms,
+        max_retries=settings.vision_max_retries,
+    )
 
 
 async def _lire_image_validee(image: UploadFile) -> bytes:
@@ -78,6 +88,7 @@ async def _lire_image_validee(image: UploadFile) -> bytes:
         429: {"description": "Quota Gemini dépassé en amont"},
         500: {"description": "Service mal configuré"},
         502: {"description": "Échec de la détection en amont"},
+        504: {"description": "Échéance globale de détection dépassée"},
     },
 )
 async def detect(
@@ -100,6 +111,14 @@ async def detect(
             status_code=429,
             detail="Quota de reconnaissance visuelle dépassé, réessayez plus tard",
         ) from e
+    except DelaiGlobalDepasse as e:
+        # Doit précéder `except RuntimeError` : DelaiGlobalDepasse en est
+        # une sous-classe directe, et une clause parente placée avant
+        # ombragerait celle-ci — tout timeout finirait en 502 au lieu de
+        # 504, alors que Medusa doit distinguer les deux (refus amont vs
+        # absence de réponse à temps).
+        logger.warning(f"Échéance globale dépassée: {e}")
+        raise HTTPException(status_code=504, detail=DELAI_DEPASSE) from e
     except RuntimeError as e:  # DetectionError en est une sous-classe
         # Le détail remonte potentiellement jusqu'à l'écran d'un marchand
         # via Medusa : journaliser la cause, ne renvoyer qu'un message stable.

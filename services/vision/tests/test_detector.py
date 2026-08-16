@@ -13,6 +13,7 @@ import pytest
 from google.genai import errors
 
 from app.detection import (
+    DelaiGlobalDepasse,
     DetectionError,
     FormatImageInvalide,
     ProductDetector,
@@ -172,3 +173,49 @@ def test_reessaie_sur_une_coupure_reseau(gemini):
     produits = asyncio.run(detecteur().detect(JPEG))
     assert produits[0]["label"] == "Tomates"
     assert len(gemini.appels()) == 2
+
+
+class FauxModelesQuiDorment:
+    """Gemini qui ne répond jamais dans le délai imparti — simule un
+    service amont accroché plutôt qu'en échec explicite."""
+
+    async def generate_content(self, **kwargs):
+        await asyncio.sleep(10)  # jamais atteint : l'échéance globale coupe avant
+        raise AssertionError("n'aurait pas dû atteindre la fin du sommeil")
+
+
+class FauxClientQuiDort:
+    def __init__(self):
+        self.aio = pytypes.SimpleNamespace(models=FauxModelesQuiDorment())
+
+
+def test_leve_delai_depasse_quand_l_echeance_globale_expire(monkeypatch):
+    """La boucle de réessai entière doit être bornée, pas seulement chaque
+    tentative : sans ça, un Gemini qui ne répond jamais laisse le service
+    tourner indéfiniment (plutôt que de plafonner à ~181s comme avant)."""
+    monkeypatch.setattr(
+        "app.detection.genai.Client", lambda **kwargs: FauxClientQuiDort()
+    )
+    detecteur_impatient = ProductDetector(
+        api_key="cle-de-test", model="modele-de-test", deadline_s=0.05
+    )
+    with pytest.raises(DelaiGlobalDepasse):
+        asyncio.run(detecteur_impatient.detect(JPEG))
+
+
+def test_l_echeance_globale_est_configurable(monkeypatch):
+    """Les trois valeurs doivent être observables sur l'instance construite,
+    pas gelées dans la classe."""
+    monkeypatch.setattr(
+        "app.detection.genai.Client", lambda **kwargs: FauxClientQuiDort()
+    )
+    d = ProductDetector(
+        api_key="cle-de-test",
+        model="modele-de-test",
+        deadline_s=12.0,
+        timeout_ms=5_000,
+        max_retries=7,
+    )
+    assert d.deadline_s == 12.0
+    assert d.timeout_ms == 5_000
+    assert d.max_retries == 7

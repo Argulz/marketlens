@@ -54,6 +54,22 @@ produit. `category` appartient aux sept catégories autorisées
 (`fruits_legumes`, `viande_poisson`, `cereales`, `boissons`, `textile`,
 `electronique`, `autre`), défaut `autre`.
 
+**Échéance globale : 45s par défaut.** La requête entière — boucle de
+réessai Gemini comprise — est bornée par `VISION_DEADLINE_S`, et non plus
+seulement chaque tentative individuellement. Un appelant (nginx, load
+balancer) doit caler son propre timeout **au-dessus** de cette valeur,
+sans quoi il coupe la connexion avant le service et celui-ci continue de
+consommer du quota Gemini pour une réponse que plus personne ne lira.
+
+Trois variables d'environnement contrôlent ce budget (défauts entre
+parenthèses) :
+
+| Variable | Rôle | Défaut |
+|---|---|---|
+| `VISION_DEADLINE_S` | Échéance globale de la requête (secondes) | `45` |
+| `VISION_TIMEOUT_MS` | Timeout par tentative Gemini (millisecondes) | `20000` |
+| `VISION_MAX_RETRIES` | Nombre de tentatives Gemini | `3` |
+
 | Code | Quand | Réessayer ? |
 |---|---|---|
 | 200 | Détection réussie (`count` peut valoir 0) | — |
@@ -64,6 +80,12 @@ produit. `category` appartient aux sept catégories autorisées
 | 429 | Quota Gemini dépassé en amont | Oui, plus tard |
 | 500 | Service mal configuré (`GEMINI_API_KEY` ou `VISION_SERVICE_SECRET` absent) | Non |
 | 502 | Échec Gemini après réessais, ou réponse inexploitable | Oui |
+| 504 | Échéance globale (`VISION_DEADLINE_S`) dépassée avant une réponse exploitable | Oui |
+
+Le 502 reste réservé aux échecs amont explicites (Gemini a répondu une
+erreur, ou une réponse inexploitable, après épuisement des tentatives) ;
+le 504 signale que Gemini n'a simplement pas répondu à temps. Les deux
+appellent des conduites différentes côté Medusa.
 
 ### `POST /annotate`
 

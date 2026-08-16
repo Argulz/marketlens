@@ -31,6 +31,20 @@ class ReponseGeminiInvalide(DetectionError):
     """Gemini a répondu autre chose que du JSON. Déterministe : pas de réessai."""
 
 
+class DelaiGlobalDepasse(RuntimeError):
+    """L'échéance globale de la requête (boucle de réessai comprise) a
+    expiré avant une réponse exploitable (→ 504).
+
+    Distincte de DetectionError : Gemini n'a pas refusé la requête, il n'a
+    simplement pas répondu à temps. Medusa doit pouvoir séparer les deux
+    cas — ils appellent des conduites différentes en workflow. Comme elle
+    hérite directement de RuntimeError (et non de DetectionError), l'ordre
+    des `except` côté main.py compte : elle doit être interceptée avant la
+    clause générique `except RuntimeError`, sans quoi celle-ci l'ombrerait
+    et la renverrait à tort en 502.
+    """
+
+
 ALLOWED_CATEGORIES = {
     "fruits_legumes",
     "viande_poisson",
@@ -127,34 +141,70 @@ class ProductDetector:
 
     MAX_RETRIES = 3
     #: Timeout par appel Gemini, en millisecondes (unité de HttpOptions).
-    TIMEOUT_MS = 60_000
+    TIMEOUT_MS = 20_000
+    #: Échéance globale de la requête entière (boucle de réessai comprise),
+    #: en secondes. Avant son introduction, chaque tentative avait sa
+    #: propre borne mais l'ensemble n'en avait aucune : 3 tentatives à 60s
+    #: plus le backoff pouvaient river le service ~181s, bien au-delà des
+    #: timeouts nginx/LB par défaut (60s) — l'appelant avait déjà coupé.
+    DEADLINE_S = 45.0
     #: Temporisation avant le 2e essai ; doublée à chaque essai suivant.
     BACKOFF_INITIAL_S = 0.5
 
-    def __init__(self, api_key: str, model: str) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        deadline_s: float | None = None,
+        timeout_ms: int | None = None,
+        max_retries: int | None = None,
+    ) -> None:
         self.api_key = api_key
         self.model = model
+        self.deadline_s = self.DEADLINE_S if deadline_s is None else deadline_s
+        self.timeout_ms = self.TIMEOUT_MS if timeout_ms is None else timeout_ms
+        self.max_retries = self.MAX_RETRIES if max_retries is None else max_retries
 
     async def detect(self, image_bytes: bytes) -> list[dict]:
         """Détecte les produits visibles. Ne bloque jamais la boucle d'événements.
+
+        Borne la boucle de réessai entière par `deadline_s`, en plus du
+        timeout par tentative (`timeout_ms`) : les deux bornes existent
+        pour des raisons différentes — l'une évite qu'un appel individuel
+        pende, l'autre évite que l'addition des tentatives + backoff
+        dépasse ce qu'un appelant (nginx, LB) est prêt à attendre.
 
         Raises:
             FormatImageInvalide: octets d'aucun format reconnu (→ 400).
             QuotaGeminiDepasse: quota amont dépassé (→ 429).
             ReponseGeminiInvalide: réponse non-JSON, non réessayée (→ 502).
-            DetectionError: échec amont après MAX_RETRIES (→ 502).
+            DetectionError: échec amont après max_retries tentatives (→ 502).
+            DelaiGlobalDepasse: échéance globale expirée (→ 504).
         """
         mime_type = detect_mime_type(image_bytes)
         client = genai.Client(
             api_key=self.api_key,
-            http_options=types.HttpOptions(timeout=self.TIMEOUT_MS),
+            http_options=types.HttpOptions(timeout=self.timeout_ms),
         )
         logger.info(
             f"Envoi à Gemini ({len(image_bytes)} octets, {mime_type}, {self.model})"
         )
 
+        try:
+            return await asyncio.wait_for(
+                self._detect_avec_reessais(client, mime_type, image_bytes),
+                timeout=self.deadline_s,
+            )
+        except asyncio.TimeoutError as e:
+            raise DelaiGlobalDepasse(
+                f"Échéance globale de {self.deadline_s:.0f}s dépassée"
+            ) from e
+
+    async def _detect_avec_reessais(
+        self, client, mime_type: str, image_bytes: bytes
+    ) -> list[dict]:
         derniere_erreur: Exception | None = None
-        for tentative in range(self.MAX_RETRIES):
+        for tentative in range(self.max_retries):
             if tentative:
                 # Sans temporisation, trois appels immédiats amplifient la
                 # panne amont — et Medusa réessaie déjà par-dessus.
@@ -181,7 +231,7 @@ class ProductDetector:
                     ) from e
                 derniere_erreur = e
                 logger.warning(
-                    f"Tentative {tentative + 1}/{self.MAX_RETRIES} échouée: {e}"
+                    f"Tentative {tentative + 1}/{self.max_retries} échouée: {e}"
                 )
                 continue
             except (httpx.HTTPError, asyncio.TimeoutError,
@@ -190,7 +240,7 @@ class ProductDetector:
                 # avalerait une erreur de programmation et la réessaierait.
                 derniere_erreur = e
                 logger.warning(
-                    f"Tentative {tentative + 1}/{self.MAX_RETRIES} échouée: {e}"
+                    f"Tentative {tentative + 1}/{self.max_retries} échouée: {e}"
                 )
                 continue
 
@@ -198,7 +248,7 @@ class ProductDetector:
             if not texte:
                 derniere_erreur = DetectionError("Réponse Gemini vide")
                 logger.warning(
-                    f"Tentative {tentative + 1}/{self.MAX_RETRIES}: réponse vide"
+                    f"Tentative {tentative + 1}/{self.max_retries}: réponse vide"
                 )
                 continue
 
@@ -216,6 +266,6 @@ class ProductDetector:
             return valides
 
         raise DetectionError(
-            f"Échec de la détection après {self.MAX_RETRIES} tentatives: "
+            f"Échec de la détection après {self.max_retries} tentatives: "
             f"{derniere_erreur}"
         )
