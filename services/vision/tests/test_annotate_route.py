@@ -98,6 +98,22 @@ def test_refuse_une_image_illisible(client):
     assert "illisible" in reponse.json()["detail"].lower()
 
 
+def test_une_erreur_interne_reste_un_500(image_jpeg, monkeypatch):
+    """Le 400 est réservé aux erreurs d'appelant : une ValueError interne à
+    Pillow ne doit pas être maquillée en erreur d'appelant, ni voir son
+    message propagé."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    def exploser(*_args, **_kwargs):
+        raise ValueError("détail interne de Pillow")
+
+    monkeypatch.setattr("app.main.annotate_image", exploser)
+    client = TestClient(app, raise_server_exceptions=False)
+    assert annoter(client, image_jpeg, PRODUITS).status_code == 500
+
+
 def test_refuse_une_photo_heic(client):
     """HEIC est le format par défaut de l'iPhone et Pillow ne le lit pas
     sans pillow-heif : le cas est le plus probable de tous."""

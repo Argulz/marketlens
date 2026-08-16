@@ -27,22 +27,31 @@ DEFAULT_COLOR = (52, 73, 94, 200)
 COORDONNEES_REQUISES = ("x", "y", "width", "height")
 
 
+class AnnotationInvalide(ValueError):
+    """Entrée d'appelant inexploitable (→ 400).
+
+    Type dédié pour que l'appelant HTTP puisse renvoyer `str(e)` sans
+    risquer de propager le message d'une ValueError interne à Pillow.
+    Son message est rédigé pour l'appelant, en français.
+    """
+
+
 def valider_produits(produits) -> list[dict]:
     """Valide la liste de produits à annoter.
 
-    Lève ValueError — jamais d'exception HTTP : ce module ignore HTTP.
-    L'appelant traduit en 400. Ne pas présumer que l'appelant a déjà
+    Lève AnnotationInvalide — jamais d'exception HTTP : ce module ignore
+    HTTP, l'appelant traduit en 400. Ne pas présumer que l'appelant a déjà
     validé : l'étanchéité de ce service est sa propriété principale.
     """
     if not isinstance(produits, list):
-        raise ValueError("Les produits doivent être une liste")
+        raise AnnotationInvalide("Les produits doivent être une liste")
 
     for i, produit in enumerate(produits):
         if not isinstance(produit, dict):
-            raise ValueError(f"Le produit n°{i + 1} doit être un objet JSON")
+            raise AnnotationInvalide(f"Le produit n°{i + 1} doit être un objet JSON")
         manquantes = [c for c in COORDONNEES_REQUISES if c not in produit]
         if manquantes:
-            raise ValueError(
+            raise AnnotationInvalide(
                 f"Le produit n°{i + 1} n'a pas de coordonnées : "
                 f"{', '.join(manquantes)} manquant(es)"
             )
@@ -50,7 +59,7 @@ def valider_produits(produits) -> list[dict]:
             try:
                 float(produit[clef])
             except (TypeError, ValueError):
-                raise ValueError(
+                raise AnnotationInvalide(
                     f"Le produit n°{i + 1} a une coordonnée « {clef} » non numérique"
                 ) from None
     return produits
@@ -66,7 +75,7 @@ def _ouvrir_image(image_bytes: bytes) -> Image.Image:
         return Image.open(io.BytesIO(image_bytes)).convert("RGBA")
     except (UnidentifiedImageError, OSError, ValueError) as e:
         logger.warning(f"Image illisible ({len(image_bytes)} octets): {e}")
-        raise ValueError("Image illisible ou format non supporté") from e
+        raise AnnotationInvalide("Image illisible ou format non supporté") from e
 
 
 def annotate_image(
@@ -86,7 +95,7 @@ def annotate_image(
         Image annotée en bytes JPEG
 
     Raises:
-        ValueError: produits mal formés, ou image illisible.
+        AnnotationInvalide: produits mal formés, ou image illisible.
     """
     valider_produits(products)
     img = _ouvrir_image(image_bytes)

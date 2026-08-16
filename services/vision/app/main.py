@@ -7,11 +7,10 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Response, Uploa
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
-from app.annotation import annotate_image
+from app.annotation import AnnotationInvalide, annotate_image
 from app.auth import require_service_secret
 from app.config import get_settings
 from app.detection import (
-    DetectionError,
     FormatImageInvalide,
     ProductDetector,
     QuotaGeminiDepasse,
@@ -88,6 +87,9 @@ async def detect(
     image_bytes = await _lire_image_validee(image)
 
     try:
+        # Échouer avant de toucher au détecteur : le format ne dépend pas de
+        # lui. Le détecteur redérive le type MIME, dont il a besoin pour le
+        # Blob envoyé à Gemini.
         detect_mime_type(image_bytes)
         produits = await detector.detect(image_bytes)
     except FormatImageInvalide as e:
@@ -98,7 +100,7 @@ async def detect(
             status_code=429,
             detail="Quota de reconnaissance visuelle dépassé, réessayez plus tard",
         ) from e
-    except (DetectionError, RuntimeError) as e:
+    except RuntimeError as e:  # DetectionError en est une sous-classe
         # Le détail remonte potentiellement jusqu'à l'écran d'un marchand
         # via Medusa : journaliser la cause, ne renvoyer qu'un message stable.
         logger.error(f"Échec de la détection: {e}")
@@ -137,8 +139,9 @@ async def annotate(
         image_annotee = await run_in_threadpool(
             annotate_image, image_bytes, liste_produits
         )
-    except ValueError as e:
-        # Messages levés par app.annotation : rédigés pour l'appelant, sûrs.
+    except AnnotationInvalide as e:
+        # Type dédié : son message est rédigé pour l'appelant. Une ValueError
+        # interne à Pillow resterait un 500, comme il se doit.
         raise HTTPException(status_code=400, detail=str(e)) from e
 
     return Response(content=image_annotee, media_type="image/jpeg")
