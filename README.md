@@ -24,3 +24,63 @@ Migration en cours vers Medusa v2 — voir
 Tests :
 
     cd services/vision && .venv/Scripts/python -m pytest tests/ -v
+
+Les tests d'intégration qui appellent réellement Gemini sont marqués et
+désélectionnés par défaut. Pour les lancer (consomme du quota) :
+
+    cd services/vision && .venv/Scripts/python -m pytest tests/ -m gemini -v
+
+## Contrat HTTP du service de vision
+
+Service sans état, jamais exposé publiquement. Toutes les routes sauf
+`/health` exigent l'en-tête `X-Vision-Secret` (secret partagé avec Medusa).
+Schéma faisant foi : `GET /openapi.json`.
+
+### `GET /health`
+
+Ouvert, sans secret. Rend `{"status": "ok", "service": "marketlens-vision"}`.
+
+| Code | Quand |
+|---|---|
+| 200 | Toujours, si le processus répond |
+
+### `POST /detect`
+
+`multipart/form-data` : `image` (fichier, JPEG/PNG/WebP).
+Rend `DetectResponse` : `{"products": [ProductOut], "count": int}`, avec
+`ProductOut = {label, x, y, width, height, category}`. Coordonnées
+normalisées **0–1000**, origine en haut à gauche, `x`/`y` au centre du
+produit. `category` appartient aux sept catégories autorisées
+(`fruits_legumes`, `viande_poisson`, `cereales`, `boissons`, `textile`,
+`electronique`, `autre`), défaut `autre`.
+
+| Code | Quand | Réessayer ? |
+|---|---|---|
+| 200 | Détection réussie (`count` peut valoir 0) | — |
+| 400 | Image vide, ou format non reconnu (HEIC, fichier tronqué) | Non |
+| 401 | `X-Vision-Secret` absent ou invalide | Non |
+| 413 | Image au-delà de `MAX_IMAGE_BYTES` (20 Mo par défaut) | Non |
+| 422 | Champ `image` absent du multipart (validation FastAPI) | Non |
+| 429 | Quota Gemini dépassé en amont | Oui, plus tard |
+| 500 | Service mal configuré (`GEMINI_API_KEY` ou `VISION_SERVICE_SECRET` absent) | Non |
+| 502 | Échec Gemini après réessais, ou réponse inexploitable | Oui |
+
+### `POST /annotate`
+
+`multipart/form-data` : `image` (fichier) et `products` (chaîne JSON).
+`products` doit être une **liste d'objets** portant au moins `x`, `y`,
+`width`, `height` (numériques, échelle 0–1000) ; `label`, `category` et
+`price` sont facultatifs. Rend l'image annotée en **`image/jpeg`**,
+redimensionnée à 1200 px de large au maximum, ratio conservé.
+
+| Code | Quand | Réessayer ? |
+|---|---|---|
+| 200 | Image annotée, corps `image/jpeg` | — |
+| 400 | JSON invalide, `products` non-liste, élément non-objet, produit sans coordonnées, image illisible ou HEIC | Non |
+| 401 | `X-Vision-Secret` absent ou invalide | Non |
+| 413 | Image au-delà de `MAX_IMAGE_BYTES` | Non |
+| 422 | Champ `image` ou `products` absent du multipart (validation FastAPI) | Non |
+| 500 | `VISION_SERVICE_SECRET` non configuré | Non |
+
+**Règle d'appel :** seuls 429 et 502 méritent un réessai. Un 4xx ne
+deviendra jamais un 200 en réessayant la même requête.

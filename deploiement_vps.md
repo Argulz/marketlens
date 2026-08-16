@@ -1,3 +1,8 @@
+> ⚠️ **Document obsolète.** Il décrit le déploiement de l'API TTS du monolithe,
+> service désormais supprimé du dépôt. Il ne s'applique à aucun service actuel et
+> sera entièrement réécrit au plan 2, avec le déploiement de `services/vision` et
+> de Medusa. Ne pas suivre ces étapes en l'état.
+
 # Guide Complet : Déployer l'API TTS sur VPS avec PuTTY
 
 ## 📋 Prérequis

@@ -588,7 +588,7 @@ async def detect(
 cd services/vision && .venv/Scripts/python -m pytest tests/ -v
 ```
 
-Attendu : 14 tests PASSÉS (2 santé + 7 parsing + 5 détection).
+Attendu : 17 tests PASSÉS (2 santé + 7 parsing + 8 détection).
 
 - [ ] **Step 7 : Commit**
 
@@ -761,7 +761,7 @@ async def annotate(
 cd services/vision && .venv/Scripts/python -m pytest tests/ -v
 ```
 
-Attendu : 20 tests PASSÉS.
+Attendu : 23 tests PASSÉS.
 
 - [ ] **Step 7 : Commit**
 
@@ -860,7 +860,7 @@ Tests :
 cd services/vision && .venv/Scripts/python -m pytest tests/ -v
 ```
 
-Attendu : 20 tests PASSÉS. Aucune dépendance au répertoire `backend/` supprimé.
+Attendu : 23 tests PASSÉS. Aucune dépendance au répertoire `backend/` supprimé.
 
 - [ ] **Step 6 : Vérifier que le dépôt est propre**
 
@@ -891,7 +891,9 @@ récupérables via git show 23a64ee:backend/<fichier>."
 
 ## Vérification finale du plan
 
-- [ ] `cd services/vision && .venv/Scripts/python -m pytest tests/ -v` → 20 tests passés
+- [ ] `cd services/vision && .venv/Scripts/python -m pytest tests/ -v` → 23 tests passés
+      (la vague de correctifs de revue finale a depuis porté ce compte à 68,
+      plus 1 test d'intégration Gemini marqué et désélectionné par défaut)
 - [ ] Le service démarre sur le port 8001 et répond à `GET /health`
 - [ ] `POST /detect` et `POST /annotate` renvoient 401 sans l'en-tête `X-Vision-Secret`
 - [ ] Aucun test de la suite par défaut n'appelle l'API Gemini réelle
