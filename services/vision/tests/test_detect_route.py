@@ -69,19 +69,57 @@ def test_refuse_une_image_trop_volumineuse(client, detecteur, monkeypatch):
 
 
 class DetecteurEnErreur:
+    def __init__(self, erreur):
+        self.erreur = erreur
+
     async def detect(self, image_bytes: bytes) -> list[dict]:
-        raise RuntimeError("Échec de la détection après 3 tentatives: quota dépassé")
+        raise self.erreur
 
 
-def test_renvoie_502_si_le_detecteur_echoue(client):
-    app.dependency_overrides[get_detector] = lambda: DetecteurEnErreur()
+def _detecte_avec(client, erreur, image=IMAGE):
+    app.dependency_overrides[get_detector] = lambda: DetecteurEnErreur(erreur)
     try:
-        reponse = client.post("/detect", files={"image": IMAGE}, headers=ENTETE)
+        return client.post("/detect", files={"image": image}, headers=ENTETE)
     finally:
         app.dependency_overrides.clear()
 
+
+def test_renvoie_502_si_le_detecteur_echoue(client):
+    reponse = _detecte_avec(
+        client, RuntimeError("Échec après 3 tentatives: connexion refusée vers 10.0.0.4")
+    )
     assert reponse.status_code == 502
-    assert "quota dépassé" in reponse.json()["detail"]
+
+
+def test_ne_propage_pas_le_message_brut_de_l_erreur_amont(client):
+    """Medusa peut faire remonter `detail` jusqu'à l'écran d'un marchand :
+    le message doit être stable et en français, jamais celui de l'exception."""
+    reponse = _detecte_avec(
+        client, RuntimeError("Traceback interne: clé sk-abcd1234 rejetée par 10.0.0.4")
+    )
+    detail = reponse.json()["detail"]
+    assert "sk-abcd1234" not in detail
+    assert "10.0.0.4" not in detail
+    assert "Traceback" not in detail
+    assert detail == "Le service de reconnaissance visuelle est indisponible"
+
+
+def test_renvoie_429_si_le_quota_amont_est_depasse(client):
+    from app.detection import QuotaGeminiDepasse
+
+    reponse = _detecte_avec(client, QuotaGeminiDepasse("429 RESOURCE_EXHAUSTED"))
+    assert reponse.status_code == 429
+
+
+def test_renvoie_400_si_le_format_de_l_image_n_est_pas_reconnu(client, detecteur):
+    """Un HEIC partait chez Gemini étiqueté « image/jpeg » et brûlait trois
+    tentatives avant un 502 indifférencié."""
+    heic = b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00mif1heic" + b"\x00" * 64
+    reponse = client.post(
+        "/detect", files={"image": ("photo.heic", heic, "image/heic")}, headers=ENTETE
+    )
+    assert reponse.status_code == 400
+    assert detecteur.appels == []
 
 
 def test_renvoie_500_si_la_cle_api_est_absente(client, monkeypatch):

@@ -11,6 +11,23 @@ from google.genai import types
 
 logger = logging.getLogger(__name__)
 
+
+class FormatImageInvalide(ValueError):
+    """L'image fournie n'est d'aucun format que Gemini sait lire (→ 400)."""
+
+
+class DetectionError(RuntimeError):
+    """Échec amont de la détection (→ 502)."""
+
+
+class QuotaGeminiDepasse(DetectionError):
+    """Quota Gemini dépassé en amont (→ 429, et non 502)."""
+
+
+class ReponseGeminiInvalide(DetectionError):
+    """Gemini a répondu autre chose que du JSON. Déterministe : pas de réessai."""
+
+
 ALLOWED_CATEGORIES = {
     "fruits_legumes",
     "viande_poisson",
@@ -77,15 +94,23 @@ def validate_products(products: list) -> list[dict]:
     return validated
 
 
-def _detect_mime_type(image_bytes: bytes) -> str:
-    """Détecte le type MIME à partir des magic bytes."""
+def detect_mime_type(image_bytes: bytes) -> str:
+    """Détecte le type MIME à partir des magic bytes.
+
+    Lève FormatImageInvalide si les octets ne correspondent à aucun format
+    reconnu. L'ancien repli silencieux sur « image/jpeg » envoyait un HEIC
+    — format par défaut de l'iPhone — mal étiqueté à Gemini, brûlant trois
+    tentatives avant un 502 qui n'expliquait rien.
+    """
     if image_bytes[:3] == b'\xff\xd8\xff':
         return "image/jpeg"
     elif image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
         return "image/png"
     elif image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP':
         return "image/webp"
-    return "image/jpeg"  # fallback
+    raise FormatImageInvalide(
+        "Format d'image non reconnu : seuls JPEG, PNG et WebP sont acceptés"
+    )
 
 
 def _clamp(value: int, min_val: int, max_val: int) -> int:

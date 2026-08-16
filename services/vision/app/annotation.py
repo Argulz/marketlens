@@ -5,7 +5,7 @@ Superpose des étiquettes de prix sur l'image aux coordonnées Gemini.
 
 import io
 import logging
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +23,51 @@ CATEGORY_COLORS = {
 # Couleur de fallback
 DEFAULT_COLOR = (52, 73, 94, 200)
 
+# Clés de position obligatoires sur chaque produit à annoter
+COORDONNEES_REQUISES = ("x", "y", "width", "height")
+
+
+def valider_produits(produits) -> list[dict]:
+    """Valide la liste de produits à annoter.
+
+    Lève ValueError — jamais d'exception HTTP : ce module ignore HTTP.
+    L'appelant traduit en 400. Ne pas présumer que l'appelant a déjà
+    validé : l'étanchéité de ce service est sa propriété principale.
+    """
+    if not isinstance(produits, list):
+        raise ValueError("Les produits doivent être une liste")
+
+    for i, produit in enumerate(produits):
+        if not isinstance(produit, dict):
+            raise ValueError(f"Le produit n°{i + 1} doit être un objet JSON")
+        manquantes = [c for c in COORDONNEES_REQUISES if c not in produit]
+        if manquantes:
+            raise ValueError(
+                f"Le produit n°{i + 1} n'a pas de coordonnées : "
+                f"{', '.join(manquantes)} manquant(es)"
+            )
+        for clef in COORDONNEES_REQUISES:
+            try:
+                float(produit[clef])
+            except (TypeError, ValueError):
+                raise ValueError(
+                    f"Le produit n°{i + 1} a une coordonnée « {clef} » non numérique"
+                ) from None
+    return produits
+
+
+def _ouvrir_image(image_bytes: bytes) -> Image.Image:
+    """Ouvre l'image ou lève ValueError si elle est illisible.
+
+    Cas réalistes : upload tronqué, ou photo HEIC — le format par défaut
+    de l'iPhone, que Pillow ne lit pas sans pillow-heif.
+    """
+    try:
+        return Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+    except (UnidentifiedImageError, OSError, ValueError) as e:
+        logger.warning(f"Image illisible ({len(image_bytes)} octets): {e}")
+        raise ValueError("Image illisible ou format non supporté") from e
+
 
 def annotate_image(
     image_bytes: bytes,
@@ -39,9 +84,13 @@ def annotate_image(
         
     Returns:
         Image annotée en bytes JPEG
+
+    Raises:
+        ValueError: produits mal formés, ou image illisible.
     """
-    img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
-    
+    valider_produits(products)
+    img = _ouvrir_image(image_bytes)
+
     # Redimensionner si nécessaire
     if img.width > max_width:
         ratio = max_width / img.width
@@ -64,10 +113,10 @@ def annotate_image(
         category = product.get("category", "autre")
         
         # Convertir les coordonnées normalisées (0-1000) en pixels
-        cx = int(product["x"] / 1000 * img_w)
-        cy = int(product["y"] / 1000 * img_h)
-        pw = int(product["width"] / 1000 * img_w)
-        ph = int(product["height"] / 1000 * img_h)
+        cx = int(float(product["x"]) / 1000 * img_w)
+        cy = int(float(product["y"]) / 1000 * img_h)
+        pw = int(float(product["width"]) / 1000 * img_w)
+        ph = int(float(product["height"]) / 1000 * img_h)
         
         color = CATEGORY_COLORS.get(category, DEFAULT_COLOR)
         
@@ -106,14 +155,11 @@ def annotate_image(
         badge_w = max_text_w + padding * 2
         badge_h = total_text_h + padding * 2
         
-        # Positionner le badge au-dessus du produit
-        badge_x = cx - badge_w // 2
-        badge_y = y1 - badge_h - 6
-        
-        # S'assurer que le badge reste dans l'image
-        badge_x = max(4, min(img_w - badge_w - 4, badge_x))
-        badge_y = max(4, min(img_h - badge_h - 4, badge_y))
-        
+        # Positionner le badge au-dessus du produit, sans sortir de l'image
+        badge_x, badge_y = _position_badge(
+            cx, y1, badge_w, badge_h, img_w, img_h
+        )
+
         # Dessiner le badge avec coins arrondis
         _draw_rounded_rect(
             draw,
@@ -148,6 +194,23 @@ def annotate_image(
     return output.read()
 
 
+MARGE_BADGE = 4
+
+
+def _position_badge(cx, y1, badge_w, badge_h, img_w, img_h) -> tuple[int, int]:
+    """Coin haut-gauche du badge, borné pour rester dans l'image.
+
+    Le badge est centré au-dessus du produit puis ramené dans les bornes.
+    Un badge plus grand que l'image ne peut pas y tenir : il est alors
+    collé à la marge haute-gauche plutôt que centré hors champ.
+    """
+    badge_x = cx - badge_w // 2
+    badge_y = y1 - badge_h - 6
+    badge_x = max(MARGE_BADGE, min(img_w - badge_w - MARGE_BADGE, badge_x))
+    badge_y = max(MARGE_BADGE, min(img_h - badge_h - MARGE_BADGE, badge_y))
+    return badge_x, badge_y
+
+
 def _get_font(size: int):
     """Essaie de charger une police TrueType, sinon utilise la police par défaut."""
     font_paths = [
@@ -161,6 +224,13 @@ def _get_font(size: int):
             return ImageFont.truetype(path, size)
         except (OSError, IOError):
             continue
+    # L'image annotée *est* le produit : une dégradation silencieuse des
+    # badges doit au moins laisser une trace.
+    logger.warning(
+        "Aucune police TrueType trouvée parmi %s — repli sur la police par "
+        "défaut de Pillow, les badges seront dégradés (taille %s ignorée)",
+        font_paths, size,
+    )
     return ImageFont.load_default()
 
 

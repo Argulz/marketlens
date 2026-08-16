@@ -67,3 +67,40 @@ def test_refuse_un_json_de_produits_invalide(client, image_jpeg):
         headers=ENTETE,
     )
     assert reponse.status_code == 400
+
+
+# --- Erreurs d'appelant : 400, jamais 500 ---------------------------------
+#
+# Un 500 sur une erreur d'appelant apprend à Medusa que « réessayer »
+# pourrait aider, alors qu'aucun réessai ne corrigera jamais l'entrée.
+
+
+def test_refuse_des_produits_qui_ne_sont_pas_une_liste(client, image_jpeg):
+    reponse = annoter(client, image_jpeg, {"a": 1})
+    assert reponse.status_code == 400
+    assert "liste" in reponse.json()["detail"].lower()
+
+
+def test_refuse_un_produit_sans_coordonnees(client, image_jpeg):
+    reponse = annoter(client, image_jpeg, [{"label": "X"}])
+    assert reponse.status_code == 400
+
+
+def test_refuse_un_element_qui_n_est_pas_un_objet(client, image_jpeg):
+    reponse = annoter(client, image_jpeg, ["bonjour"])
+    assert reponse.status_code == 400
+
+
+def test_refuse_une_image_illisible(client):
+    """Un upload tronqué rend 400, pas 500."""
+    reponse = annoter(client, b"\xff\xd8\xff\xe0 tronqu\xc3\xa9e", PRODUITS)
+    assert reponse.status_code == 400
+    assert "illisible" in reponse.json()["detail"].lower()
+
+
+def test_refuse_une_photo_heic(client):
+    """HEIC est le format par défaut de l'iPhone et Pillow ne le lit pas
+    sans pillow-heif : le cas est le plus probable de tous."""
+    heic = b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00mif1heic" + b"\x00" * 64
+    reponse = annoter(client, heic, PRODUITS)
+    assert reponse.status_code == 400
