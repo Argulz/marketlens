@@ -1,4 +1,4 @@
-import { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
+import { AuthenticatedMedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { setAuthAppMetadataStep } from "@medusajs/medusa/core-flows"
 import { createWorkflow, WorkflowResponse, transform } from "@medusajs/framework/workflows-sdk"
 import createMerchantWorkflow from "../../../workflows/create-merchant"
@@ -35,7 +35,7 @@ const inscrireMarchandWorkflow = createWorkflow(
 )
 
 export const POST = async (
-  req: MedusaRequest<CorpsInscription>,
+  req: AuthenticatedMedusaRequest<CorpsInscription>,
   res: MedusaResponse
 ) => {
   const { name, handle, phone, whatsapp_phone } = req.body

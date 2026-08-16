@@ -57,6 +57,22 @@ medusaIntegrationTestRunner({
 
         expect(reponse.status).toBe(401)
       })
+
+      it("protège aussi une variante de casse d'une route marchand (régression de sensibilité à la casse)", async () => {
+        // /merchant/me n'existe pas encore (tâche 4), mais peu importe : la
+        // règle générale doit intercepter et répondre 401 *avant* même
+        // qu'Express ne cherche un gestionnaire. Un 404 prouverait que le
+        // matcher regex de la règle générale n'a pas matché cette variante
+        // de casse (donc qu'il est redevenu sensible à la casse) et que la
+        // requête est tombée à travers jusqu'au 404 par défaut d'Express —
+        // exactement le contournement d'authentification que ce test
+        // vérifie l'absence de.
+        const reponse = await api
+          .get("/Merchant/une-route-quelconque")
+          .catch((e) => e.response)
+
+        expect(reponse.status).toBe(401)
+      })
     })
   },
 })
