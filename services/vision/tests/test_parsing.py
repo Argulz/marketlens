@@ -2,7 +2,12 @@ from pathlib import Path
 
 import pytest
 
-from app.detection import parse_json_response, validate_products
+from app.detection import (
+    FormatImageInvalide,
+    detect_mime_type,
+    parse_json_response,
+    validate_products,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "gemini_responses"
 
@@ -58,3 +63,33 @@ def test_validate_replie_une_categorie_inconnue_sur_autre():
         [{"label": "Mystère", "category": "poissons_volants"}]
     )
     assert produit["category"] == "autre"
+
+
+def test_validate_accepte_une_coordonnee_en_chaine_decimale():
+    """`int("250.7")` levait : le produit entier disparaissait en silence."""
+    (produit,) = validate_products(
+        [{"label": "Tomates", "x": "250.7", "y": 400.9, "width": "200",
+          "height": 150}]
+    )
+    assert produit["x"] == 250
+    assert produit["y"] == 400
+    assert produit["width"] == 200
+
+
+@pytest.mark.parametrize(
+    "octets, attendu",
+    [
+        (b"\xff\xd8\xff\xe0 jpeg", "image/jpeg"),
+        (b"\x89PNG\r\n\x1a\n suite", "image/png"),
+        (b"RIFF" + b"\x00" * 4 + b"WEBP suite", "image/webp"),
+    ],
+)
+def test_detect_mime_type_reconnait_les_formats_supportes(octets, attendu):
+    assert detect_mime_type(octets) == attendu
+
+
+def test_detect_mime_type_refuse_un_format_inconnu():
+    """Un HEIC retombait silencieusement sur « image/jpeg »."""
+    heic = b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00mif1heic"
+    with pytest.raises(FormatImageInvalide):
+        detect_mime_type(heic)

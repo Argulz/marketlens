@@ -3,11 +3,14 @@ MarketLens — Module d'intégration Gemini Vision
 Détecte les produits sur une image de marché et retourne leurs coordonnées.
 """
 
+import asyncio
 import json
 import logging
 import re
+
+import httpx
 from google import genai
-from google.genai import types
+from google.genai import errors, types
 
 logger = logging.getLogger(__name__)
 
@@ -83,10 +86,12 @@ def validate_products(products: list) -> list[dict]:
                 category = "autre"
             validated.append({
                 "label": str(p.get("label", "Produit")),
-                "x": _clamp(int(p.get("x", 500)), 0, 1000),
-                "y": _clamp(int(p.get("y", 500)), 0, 1000),
-                "width": _clamp(int(p.get("width", 100)), 20, 1000),
-                "height": _clamp(int(p.get("height", 100)), 20, 1000),
+                # int(float(...)) : une coordonnée en chaîne décimale
+                # (« 250.7 ») faisait disparaître le produit entier.
+                "x": _clamp(int(float(p.get("x", 500))), 0, 1000),
+                "y": _clamp(int(float(p.get("y", 500))), 0, 1000),
+                "width": _clamp(int(float(p.get("width", 100))), 20, 1000),
+                "height": _clamp(int(float(p.get("height", 100))), 20, 1000),
                 "category": category,
             })
         except (ValueError, TypeError, AttributeError) as e:
@@ -121,20 +126,43 @@ class ProductDetector:
     """Encapsule l'appel à Gemini. Substituable en test."""
 
     MAX_RETRIES = 3
+    #: Timeout par appel Gemini, en millisecondes (unité de HttpOptions).
+    TIMEOUT_MS = 60_000
+    #: Temporisation avant le 2e essai ; doublée à chaque essai suivant.
+    BACKOFF_INITIAL_S = 0.5
 
     def __init__(self, api_key: str, model: str) -> None:
         self.api_key = api_key
         self.model = model
 
     async def detect(self, image_bytes: bytes) -> list[dict]:
-        client = genai.Client(api_key=self.api_key)
-        mime_type = _detect_mime_type(image_bytes)
-        logger.info(f"Envoi à Gemini ({len(image_bytes)} octets, {mime_type}, {self.model})")
+        """Détecte les produits visibles. Ne bloque jamais la boucle d'événements.
+
+        Raises:
+            FormatImageInvalide: octets d'aucun format reconnu (→ 400).
+            QuotaGeminiDepasse: quota amont dépassé (→ 429).
+            ReponseGeminiInvalide: réponse non-JSON, non réessayée (→ 502).
+            DetectionError: échec amont après MAX_RETRIES (→ 502).
+        """
+        mime_type = detect_mime_type(image_bytes)
+        client = genai.Client(
+            api_key=self.api_key,
+            http_options=types.HttpOptions(timeout=self.TIMEOUT_MS),
+        )
+        logger.info(
+            f"Envoi à Gemini ({len(image_bytes)} octets, {mime_type}, {self.model})"
+        )
 
         derniere_erreur: Exception | None = None
         for tentative in range(self.MAX_RETRIES):
+            if tentative:
+                # Sans temporisation, trois appels immédiats amplifient la
+                # panne amont — et Medusa réessaie déjà par-dessus.
+                delai = self.BACKOFF_INITIAL_S * 2 ** (tentative - 1)
+                logger.info(f"Nouvelle tentative dans {delai:.1f}s")
+                await asyncio.sleep(delai)
             try:
-                response = client.models.generate_content(
+                response = await client.aio.models.generate_content(
                     model=self.model,
                     contents=[
                         types.Content(parts=[
@@ -146,14 +174,48 @@ class ProductDetector:
                     config=types.GenerateContentConfig(
                         temperature=0.1, max_output_tokens=4096),
                 )
-                produits = parse_json_response(response.text.strip())
-                valides = validate_products(produits)
-                logger.info(f"Produits détectés: {len(valides)}")
-                return valides
-            except Exception as e:
+            except errors.APIError as e:
+                if getattr(e, "code", None) == 429:
+                    raise QuotaGeminiDepasse(
+                        "Quota Gemini dépassé en amont"
+                    ) from e
                 derniere_erreur = e
-                logger.warning(f"Tentative {tentative + 1}/{self.MAX_RETRIES} échouée: {e}")
+                logger.warning(
+                    f"Tentative {tentative + 1}/{self.MAX_RETRIES} échouée: {e}"
+                )
+                continue
+            except (httpx.HTTPError, asyncio.TimeoutError,
+                    TimeoutError, ConnectionError) as e:
+                # Erreurs de transport uniquement : un `except Exception`
+                # avalerait une erreur de programmation et la réessaierait.
+                derniere_erreur = e
+                logger.warning(
+                    f"Tentative {tentative + 1}/{self.MAX_RETRIES} échouée: {e}"
+                )
+                continue
 
-        raise RuntimeError(
-            f"Échec de la détection après {self.MAX_RETRIES} tentatives: {derniere_erreur}"
+            texte = (getattr(response, "text", None) or "").strip()
+            if not texte:
+                derniere_erreur = DetectionError("Réponse Gemini vide")
+                logger.warning(
+                    f"Tentative {tentative + 1}/{self.MAX_RETRIES}: réponse vide"
+                )
+                continue
+
+            try:
+                produits = parse_json_response(texte)
+            except ValueError as e:
+                # Déterministe : un refus en texte libre ne deviendra pas du
+                # JSON au troisième appel.
+                raise ReponseGeminiInvalide(
+                    "Gemini n'a pas répondu en JSON exploitable"
+                ) from e
+
+            valides = validate_products(produits)
+            logger.info(f"Produits détectés: {len(valides)}")
+            return valides
+
+        raise DetectionError(
+            f"Échec de la détection après {self.MAX_RETRIES} tentatives: "
+            f"{derniere_erreur}"
         )
