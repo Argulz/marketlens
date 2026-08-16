@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: marketlens-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: marketlens
+      POSTGRES_PASSWORD: marketlens
+      POSTGRES_DB: marketlens
+    # 5432 à 5435 sont pris par une autre pile Docker sur cette machine.
+    # MarketLens se décale sur 5440 plutôt que de la déranger.
+    ports:
+      - "5440:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U marketlens -d marketlens"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-data:
