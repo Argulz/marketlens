@@ -11,6 +11,16 @@ from google.genai import types
 
 logger = logging.getLogger(__name__)
 
+ALLOWED_CATEGORIES = {
+    "fruits_legumes",
+    "viande_poisson",
+    "cereales",
+    "boissons",
+    "textile",
+    "electronique",
+    "autre",
+}
+
 DETECTION_PROMPT = """Tu es un expert en reconnaissance de produits sur les marchés africains.
 Analyse cette image d'un étal de marché ou de produits à vendre.
 
@@ -51,13 +61,16 @@ def validate_products(products: list) -> list[dict]:
     validated = []
     for p in products:
         try:
+            category = p.get("category", "autre")
+            if category not in ALLOWED_CATEGORIES:
+                category = "autre"
             validated.append({
                 "label": str(p.get("label", "Produit")),
                 "x": _clamp(int(p.get("x", 500)), 0, 1000),
                 "y": _clamp(int(p.get("y", 500)), 0, 1000),
                 "width": _clamp(int(p.get("width", 100)), 20, 1000),
                 "height": _clamp(int(p.get("height", 100)), 20, 1000),
-                "category": p.get("category", "autre"),
+                "category": category,
             })
         except (ValueError, TypeError, AttributeError) as e:
             logger.warning(f"Produit invalide ignoré: {p} — {e}")

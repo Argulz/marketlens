@@ -51,3 +51,10 @@ def test_validate_ignore_les_entrees_inexploitables():
         [{"label": "Bon", "x": 10, "y": 10}, {"label": "Mauvais", "x": "abc"}]
     )
     assert [p["label"] for p in produits] == ["Bon"]
+
+
+def test_validate_replie_une_categorie_inconnue_sur_autre():
+    (produit,) = validate_products(
+        [{"label": "Mystère", "category": "poissons_volants"}]
+    )
+    assert produit["category"] == "autre"
