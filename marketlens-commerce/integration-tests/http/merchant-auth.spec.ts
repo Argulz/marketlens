@@ -73,6 +73,37 @@ medusaIntegrationTestRunner({
 
         expect(reponse.status).toBe(401)
       })
+
+      it("protège /merchant sans barre finale", async () => {
+        // L'ancien matcher (`/^\/merchant\/(?!register(?:\/|$)).*/i`) exigeait
+        // une barre après `merchant` : `/merchant` tout court ne matchait
+        // aucune règle. Le 404 d'Express masquait le trou, mais une future
+        // src/api/merchant/route.ts serait née non authentifiée. Un 401 ici
+        // prouve que le middleware intercepte avant qu'Express ne cherche un
+        // gestionnaire ; un 404 prouverait que le trou est de retour.
+        const reponse = await api.get("/merchant").catch((e) => e.response)
+
+        expect(reponse.status).toBe(401)
+      })
+
+      it("protège les sous-chemins de /merchant/register", async () => {
+        // Second trou de l'ancien matcher : la négation excluait tout
+        // `/merchant/register/**`, et la règle d'inscription ne le rattrapait
+        // pas — elle est enregistrée via `app.post(matcher)`, donc en
+        // correspondance exacte
+        // (node_modules/@medusajs/framework/dist/http/router.js:230). Une
+        // future src/api/merchant/register/confirm/route.ts serait née non
+        // authentifiée, sur les deux verbes.
+        const enLecture = await api
+          .get("/merchant/register/confirm")
+          .catch((e) => e.response)
+        expect(enLecture.status).toBe(401)
+
+        const enEcriture = await api
+          .post("/merchant/register/confirm", {})
+          .catch((e) => e.response)
+        expect(enEcriture.status).toBe(401)
+      })
     })
   },
 })
