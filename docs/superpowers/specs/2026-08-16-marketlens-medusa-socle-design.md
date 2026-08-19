@@ -78,25 +78,40 @@ C'est la partie la plus exigeante du lot. Medusa n'est pas nativement multi-tena
 
 ### Module `merchant`
 
-Entité `Merchant` : `id`, `name`, `handle` (identifiant lisible unique, réservé à une future page boutique — non utilisé dans les URLs du lot 1), `phone`, `whatsapp_phone`, `currency_code` (`XOF` par défaut), `status`. Entité pivot du système.
+Entité `Merchant` : `id`, `name`, `handle` (identifiant lisible unique, réservé à une future page boutique — non utilisé dans les URLs du lot 1 ; normalisé en slug minuscule `^[a-z0-9]+(-[a-z0-9]+)*$` à l'inscription, parce que l'index unique de Postgres est sensible à la casse et que deux handles ne différant que par la casse se disputeraient la même URL publique), `phone`, `whatsapp_phone`, `currency_code` (`xof`, **en minuscules**, par défaut — c'est la valeur réellement stockée par le modèle et assertée par les tests ; la forme majuscule `XOF` n'apparaît nulle part dans le code), `status`. Entité pivot du système.
 
 ### Les trois mécanismes d'isolation
 
-**Sales Channel — un par marchand.** Les produits y sont rattachés, et une clé API publiable propre au marchand filtre la Store API. La vitrine d'un marchand ne peut structurellement pas retourner les produits d'un autre : le filtrage est appliqué par le framework, pas par du code applicatif. C'est l'isolation la plus solide des trois.
+**Sales Channel — un par marchand.** Les produits y sont rattachés, et une clé API publiable propre au marchand filtre la Store API.
+
+La portée exacte de ce filtrage, vérifiée par sonde réelle et verrouillée par un test (`integration-tests/http/merchant-isolation.spec.ts`) :
+
+- **Filtrés par le framework, sans code applicatif : les produits et les paniers.** La vitrine d'un marchand ne peut structurellement pas retourner les produits d'un autre. Sur ce périmètre, c'est l'isolation la plus solide des trois.
+- **Globaux à l'instance, donc NON filtrés : les collections, les catégories de produits, les régions, les tags et les types de produits.** `/store/collections` et `/store/product-categories` renvoient à la clé publiable d'un marchand les collections et catégories créées par n'importe quel autre. Ce n'est pas une nuance : c'est une fuite dès qu'on s'en sert pour regrouper.
+
+Aucune fuite vive dans le lot 1 — rien n'y crée de collection ni de catégorie par marchand. Mais le lot 3 construit le catalogue visuel, et regrouper les produits d'un marchand par collection ou catégorie est le premier réflexe. **Tout regroupement par marchand doit reposer sur un filtrage applicatif explicite (par exemple par `sales_channel_id` ou par le lien `merchant`), jamais sur la seule clé publiable.**
 
 **Stock Location — une par marchand.** Les niveaux du module *Inventory* sont attachés à un emplacement, donc naturellement cloisonnés. C'est aussi ce qui rendra le lot 4 réalisable.
 
-**Acteur d'authentification custom.** Medusa v2 permet de déclarer un type d'acteur autre que `admin` et `customer`. On déclare `merchant` ; les routes `/api/merchant/*` sont protégées par `authenticate("merchant", ["session", "bearer"])`. L'identité d'authentification porte le `merchant_id` dans ses `app_metadata`, et un middleware l'injecte dans la requête pour filtrer toute lecture et écriture.
+**Acteur d'authentification custom.** Medusa v2 permet de déclarer un type d'acteur autre que `admin` et `customer`. On déclare `merchant` ; les routes `/merchant/*` sont protégées par `authenticate("merchant", ["session", "bearer"])`. L'identité d'authentification porte le `merchant_id` dans ses `app_metadata`, et un middleware l'injecte dans la requête pour filtrer toute lecture et écriture.
 
 ### Ce qu'on n'utilise pas
 
 **L'admin Medusa natif n'est pas exposé aux marchands.** Il n'est pas cloisonnable — un marchand y verrait les données de tous les autres. Il reste disponible pour l'opérateur de la plateforme, à des fins de supervision.
 
-Le back-office marchand est donc à construire dans `marketlens-web`, sur les routes `/api/merchant/*`. **C'est le principal poste de travail du lot et le coût d'entrée assumé de Medusa sur un usage SaaS.**
+Le back-office marchand est donc à construire dans `marketlens-web`, sur les routes `/merchant/*`. **C'est le principal poste de travail du lot et le coût d'entrée assumé de Medusa sur un usage SaaS.**
 
 ### Provisionnement d'un marchand
 
 La création d'un marchand est un workflow atomique qui enchaîne : création du `Merchant`, du sales channel, de la stock location, de la clé publiable, des liens entre eux, et de l'identité d'authentification. Chaque étape porte sa compensation ; un marchand à moitié provisionné est un état interdit.
+
+**Sémantique de `status`.** Trois valeurs : `pending`, `active`, `suspended`.
+
+- `pending` est la valeur par défaut du modèle. Elle ne décrit qu'un marchand créé hors du workflow de provisionnement (import, script d'opérateur) : ses ressources de cloisonnement ne sont pas garanties.
+- `active` est posée explicitement par le workflow de provisionnement, à la création de l'enregistrement. Un marchand qui sort du workflow est immédiatement opérationnel : il n'y a pas d'étape de validation dans le lot 1.
+- `suspended` est posée par l'opérateur de la plateforme.
+
+`status` n'est pas décoratif : **toute route marchand refuse un marchand dont le statut n'est pas `active`** (403, message français). Sans cette lecture, une suspension n'aurait aucun effet observable — le marchand suspendu continuerait d'être servi normalement.
 
 ## Module `visual-catalog`
 
@@ -147,7 +162,7 @@ Aucun produit n'existe à l'issue de ce workflow. Le marchand reçoit un brouill
 
 Prend le brouillon corrigé. C'est la transaction qui crée de la valeur :
 
-1. Création des produits via `createProductsWorkflow`, avec options, variantes, prix en XOF, rattachés au sales channel du marchand
+1. Création des produits via `createProductsWorkflow`, avec options, variantes, prix en `xof` (code devise en minuscules), rattachés au sales channel du marchand
 2. Création des niveaux d'inventaire à la stock location du marchand
 3. Liaison de chaque `CatalogueZone` à son produit
 4. Appel `vision/annotate` pour produire l'image annotée
@@ -214,7 +229,7 @@ Sur `moduleIntegrationTestRunner` et `medusaIntegrationTestRunner` fournis par M
 
 - **Tests de service** pour `merchant` et `visual-catalog`.
 - **Tests de workflow**, avec le service de vision doublé par un stub HTTP. C'est ici que la frontière propre se rembourse.
-- **Test d'isolation multi-tenant.** Deux marchands provisionnés ; vérification qu'aucune route `/api/merchant/*` et aucune requête Store API portant la clé publiable de l'un ne laisse fuir quoi que ce soit de l'autre. *S'il n'existe qu'un test à ne jamais laisser casser, c'est celui-là.*
+- **Test d'isolation multi-tenant.** Deux marchands provisionnés ; vérification qu'aucune route `/merchant/*` et aucune requête Store API portant la clé publiable de l'un ne laisse fuir quoi que ce soit de l'autre. Concrètement, il doit assert : les trois ressources de cloisonnement distinctes (canal de vente, emplacement de stock, clé API) ; **la clé publiable de chaque marchand liée à exactement un canal** — c'est cette assertion, et elle seule, qui attrape une rupture asymétrique où la clé de l'un serait liée à un sur-ensemble de canaux ; la non-visibilité des produits **dans les deux sens**, un produit créé de chaque côté ; et la limite connue sur les collections et catégories. *S'il n'existe qu'un test à ne jamais laisser casser, c'est celui-là.*
 - **Test de compensation.** Faire échouer `vision/annotate` au milieu de `publishCatalogue` et vérifier qu'aucun produit orphelin ne subsiste.
 
 ### `marketlens-web`
@@ -236,7 +251,12 @@ L'ordre est contraint par les dépendances :
 
 ## Risques et points de vigilance
 
-**La multi-tenance est le risque principal.** Medusa n'y est pas conçu nativement. L'isolation par sales channel est solide car appliquée par le framework, mais l'isolation des routes `/api/merchant/*` repose sur du code applicatif — un middleware oublié sur une route est une fuite de données entre marchands. D'où le statut particulier du test d'isolation.
+**La multi-tenance est le risque principal.** Medusa n'y est pas conçu nativement. L'isolation par sales channel est solide car appliquée par le framework, mais l'isolation des routes `/merchant/*` repose sur du code applicatif — un middleware oublié sur une route est une fuite de données entre marchands. D'où le statut particulier du test d'isolation.
+
+**Limites acceptées du lot 1**, constatées et assumées plutôt que corrigées :
+
+- **Les collections, catégories, régions, tags et types de produits ne sont pas cloisonnés** par la clé publiable (voir « Les trois mécanismes d'isolation »). Un test nommé `LIMITE CONNUE` la constate explicitement : si Medusa portait un jour ces ressources sur le canal de vente, ce test deviendrait rouge et signalerait qu'on peut relâcher la contrainte.
+- **Le refus d'une requête Store API sans clé publiable rend un message en anglais** (`Publishable API key required in the request header: x-publishable-api-key…`, HTTP 400, `MedusaError.Types.NOT_ALLOWED` — `node_modules/@medusajs/framework/dist/http/middlewares/ensure-publishable-api-key.js:8`). Ce message vient d'un middleware du framework, sur une route qu'aucun code de ce dépôt ne possède ; le franciser supposerait de réécrire une route Store de Medusa. Contrainte « messages en français » volontairement non appliquée ici : elle ne vaut que pour les routes écrites dans ce dépôt.
 
 **La surface d'API de Medusa v2 évolue encore.** Version pinnée, montées de version traitées comme des changements explicites.
 
