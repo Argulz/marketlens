@@ -36,6 +36,9 @@ medusaIntegrationTestRunner({
         expect(reponse.data.merchant.id).toBe(fatou.merchantId)
         expect(reponse.data.merchant.handle).toBe("etal-fatou")
         expect(reponse.data.merchant.currency_code).toBe("xof")
+        // Provisionné par le workflow, donc `active` — la valeur par défaut du
+        // modèle DML (`pending`) ne survit pas au provisionnement.
+        expect(reponse.data.merchant.status).toBe("active")
       })
 
       it("refuse une requête sans jeton", async () => {
@@ -73,6 +76,27 @@ medusaIntegrationTestRunner({
 
         expect(reponse.status).toBe(401)
         expect(reponse.data.message).toBe("Identité non rattachée à un marchand")
+      })
+
+      it("refuse un marchand suspendu avec un message français", async () => {
+        // `status` était un champ inerte : aucun code ne le lisait, donc un
+        // marchand `suspended` (comme un marchand `pending` jamais
+        // provisionné) était servi normalement et la suspension n'avait aucun
+        // effet observable.
+        const nabou = await inscrireMarchand(api, "nabou@marketlens.test", "etal-nabou", "22990000004")
+
+        const merchantService: any = getContainer().resolve(MERCHANT_MODULE)
+        await merchantService.updateMerchants({
+          id: nabou.merchantId,
+          status: "suspended",
+        })
+
+        const reponse = await api
+          .get("/merchant/me", { headers: { authorization: `Bearer ${nabou.jeton}` } })
+          .catch((e) => e.response)
+
+        expect(reponse.status).toBe(403)
+        expect(reponse.data.message).toBe("Compte marchand inactif (statut : suspended)")
       })
     })
   },
