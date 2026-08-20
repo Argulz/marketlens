@@ -106,7 +106,16 @@ async function appeler(chemin: string, corps: FormData): Promise<Response> {
     )
   }
 
-  if (reponse.status >= 400 && reponse.status < 500) {
+  // Tous les 4xx ne se valent pas. Le service de vision rend 401 quand notre
+  // secret partagé est mal configuré et 429 quand le quota Gemini est épuisé :
+  // ce sont des pannes de notre côté ou de l'amont, pas des requêtes fautives.
+  // Les classer en refus accuserait la photo du marchand d'une cause qui lui est
+  // étrangère et, surtout, les rendrait en 4xx — donc invisibles en supervision,
+  // qui surveille les 5xx. Seuls les codes qui mettent réellement en cause la
+  // requête restent des refus ; tout autre 4xx (404 sur une route disparue,
+  // 405, 409…) trahit une incohérence de déploiement et relève de la panne.
+  const CODES_REQUETE_FAUTIVE = [400, 413, 415, 422]
+  if (CODES_REQUETE_FAUTIVE.includes(reponse.status)) {
     await reponse.text().catch(() => {})
     throw new VisionRefuse(
       `Le service de vision a refusé la requête (${reponse.status})`

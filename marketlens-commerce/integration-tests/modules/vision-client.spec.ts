@@ -86,6 +86,29 @@ describe("Client du service de vision", () => {
     }
   })
 
+  it("classe une authentification refusée ou un quota amont épuisé en indisponibilité, jamais en refus", async () => {
+    // 401 (secret partagé mal configuré côté service Python) et 429 (quota
+    // Gemini épuisé) sont des pannes de notre côté ou de l'amont : les
+    // classer en VisionRefuse accuserait la photo du marchand pour une
+    // cause qui lui est totalement étrangère, et la route les rendrait en
+    // 400 au lieu du 503 attendu en supervision.
+    const authInvalide = await servir((_req, res) => { res.writeHead(401); res.end("{}") })
+    try {
+      process.env.VISION_SERVICE_URL = authInvalide.url
+      await expect(detecterProduits(JPEG, "etal.jpg")).rejects.toBeInstanceOf(VisionIndisponible)
+    } finally {
+      await authInvalide.fermer()
+    }
+
+    const quotaEpuise = await servir((_req, res) => { res.writeHead(429); res.end("{}") })
+    try {
+      process.env.VISION_SERVICE_URL = quotaEpuise.url
+      await expect(detecterProduits(JPEG, "etal.jpg")).rejects.toBeInstanceOf(VisionIndisponible)
+    } finally {
+      await quotaEpuise.fermer()
+    }
+  })
+
   it("rend les octets JPEG annotés", async () => {
     const s = await servir((_req, res) => {
       res.writeHead(200, { "content-type": "image/jpeg" })

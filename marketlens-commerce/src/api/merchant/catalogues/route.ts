@@ -12,7 +12,7 @@ import {
 // Le message doit dire au marchand quoi faire — et nommer la limite, parce
 // que le cas de loin le plus fréquent est une photo trop lourde.
 const MESSAGE_PHOTO_REFUSEE =
-  `Cette photo n'a pas pu être analysée. Vérifiez qu'il s'agit bien d'une image (JPEG ou PNG) de moins de ${TAILLE_MAX_IMAGE_MO} Mo, puis réessayez.`
+  `Cette photo n'a pas pu être analysée. Vérifiez qu'il s'agit bien d'une image (JPEG, PNG ou WebP) de moins de ${TAILLE_MAX_IMAGE_MO} Mo, puis réessayez.`
 
 // Panne amont : le marchand n'y peut rien, et la supervision doit voir un
 // 5xx. Le détail technique reste dans les journaux du serveur.

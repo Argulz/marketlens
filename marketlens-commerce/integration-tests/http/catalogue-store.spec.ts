@@ -413,6 +413,29 @@ medusaIntegrationTestRunner({
         // dans les journaux du serveur.
         expect(reponse.data.message).not.toContain("(503)")
       })
+
+      it("traduit un quota Gemini épuisé (429 amont) en 503, jamais en 400 accusant la photo", async () => {
+        // 429 signale un quota Gemini épuisé en amont — une panne de
+        // capacité, pas une photo en cause. Le compter en 400 la ferait
+        // porter au marchand et la rendrait invisible en supervision.
+        const marchand = await inscrire(api, "etal-cat-429", "22990009011")
+
+        const vision = await servirVisionFactice({ statutDetect: 429 })
+        let reponse: any
+        try {
+          reponse = await api
+            .post("/merchant/catalogues", corpsPhoto("Étal quota épuisé"), {
+              headers: { authorization: `Bearer ${marchand.jeton}` },
+            })
+            .catch((e: any) => e.response)
+        } finally {
+          await vision.fermer()
+        }
+
+        expect(reponse.status).toBe(503)
+        expect(reponse.data.message).toMatch(/indisponible/i)
+        expect(reponse.data.message).not.toContain("(429)")
+      })
     })
   },
 })
