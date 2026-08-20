@@ -251,6 +251,62 @@ medusaIntegrationTestRunner({
           await vision.fermer()
         }
       })
+
+      it("ne laisse pas l'échec du nettoyage écraser l'erreur d'origine", async () => {
+        // Le filet du test précédent (effacer le catalogue déjà créé quand
+        // l'écriture des zones échoue) n'était pas lui-même protégé : si le
+        // `deleteVisualCatalogues` échouait à son tour, SON erreur remplaçait
+        // l'erreur d'origine. On diagnostiquait alors une panne de nettoyage
+        // là où la cause première était tout autre — et la cause première
+        // était perdue, y compris dans les journaux.
+        const titreDistinctif = "Titre Nettoyage Ecrase 5b7d"
+
+        const vision = await servirVisionFactice({
+          detect: {
+            products: [
+              { label: "Gombos", x: 100, y: 100, width: 50, height: 50, category: "fruits_legumes" },
+            ],
+            count: 1,
+          },
+        })
+
+        try {
+          const { result: m } = await createMerchantWorkflow(getContainer()).run({
+            input: { name: "Étal Nettoyage", handle: "etal-nettoyage-ecrase", phone: "22990008005" },
+          })
+
+          const service = getContainer().resolve<VisualCatalogModuleService>(VISUAL_CATALOG_MODULE)
+          const spyZones = jest
+            .spyOn(service, "createCatalogueZones")
+            .mockRejectedValueOnce(new Error("échec simulé de l'écriture groupée des zones"))
+          const spyNettoyage = jest
+            .spyOn(service, "deleteVisualCatalogues")
+            .mockRejectedValueOnce(new Error("échec simulé du nettoyage de secours"))
+
+          let message = ""
+          try {
+            await analyzeCataloguePhotoWorkflow(getContainer()).run({
+              input: {
+                merchant_id: m.merchant_id,
+                filename: "etal.jpg",
+                content: Buffer.from([0xff, 0xd8, 0xff, 0xe0]).toString("binary"),
+                title: titreDistinctif,
+              },
+            })
+          } catch (e: any) {
+            message = e?.message ?? ""
+          } finally {
+            spyZones.mockRestore()
+            spyNettoyage.mockRestore()
+          }
+
+          // Le cœur du test : c'est bien la cause PREMIÈRE qui remonte.
+          expect(message).toContain("écriture groupée des zones")
+          expect(message).not.toContain("nettoyage de secours")
+        } finally {
+          await vision.fermer()
+        }
+      })
     })
   },
 })

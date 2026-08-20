@@ -1,4 +1,5 @@
 import { createStep, StepResponse } from "@medusajs/framework/workflows-sdk"
+import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import { VISUAL_CATALOG_MODULE } from "../../modules/visual-catalog"
 import VisualCatalogModuleService from "../../modules/visual-catalog/service"
 import { ZoneDetectee } from "../../lib/vision-client"
@@ -88,7 +89,20 @@ export const createCatalogueDraftStep = createStep(
       // `StepResponse` — sa propre compensation ne sera donc jamais invoquée
       // par l'orchestrateur — et le catalogue resterait sinon orphelin, sans
       // aucune zone. On l'efface nous-mêmes avant de repropager l'erreur.
-      await service.deleteVisualCatalogues([catalogue.id])
+      // Le nettoyage a SON propre try/catch : sans lui, un échec de
+      // `deleteVisualCatalogues` remplaçait l'erreur d'origine par la sienne
+      // et faisait diagnostiquer une panne de nettoyage là où la cause
+      // première était tout autre — celle-ci étant alors définitivement
+      // perdue. On journalise l'échec du nettoyage (le catalogue orphelin
+      // doit rester visible) et on relève l'erreur d'origine, toujours.
+      try {
+        await service.deleteVisualCatalogues([catalogue.id])
+      } catch (echecNettoyage) {
+        const logger = container.resolve(ContainerRegistrationKeys.LOGGER)
+        logger.error(
+          `create-catalogue-draft : nettoyage du catalogue ${catalogue.id} impossible après échec de l'écriture des zones — ${(echecNettoyage as Error)?.message}. Le catalogue reste orphelin.`
+        )
+      }
       throw e
     }
 
