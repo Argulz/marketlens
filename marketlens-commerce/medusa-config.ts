@@ -35,5 +35,8 @@ module.exports = defineConfig({
     {
       resolve: "./src/modules/merchant",
     },
+    {
+      resolve: "./src/modules/visual-catalog",
+    },
   ],
 })
