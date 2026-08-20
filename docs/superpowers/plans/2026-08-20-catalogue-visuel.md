@@ -1389,7 +1389,13 @@ Attendu : 2 tests PASSÉS.
 
 - [ ] **Step 7 : Prouver la compensation par un rouge/vert**
 
-Retirez temporairement la compensation de `linkZonesToProductsStep`, constatez que le test de compensation devient **rouge**, remettez-la, constatez le **vert**. **Consignez les deux sorties dans votre rapport.** Un test de compensation qu'on n'a jamais vu échouer ne prouve rien.
+Au plan 2, la preuve consistait à retirer une compensation maison et à constater le rouge. **Cette recette ne s'applique pas ici**, et il faut le dire : dans ce workflow, les compensations réellement exercées appartiennent toutes au framework — celles de `createProductsWorkflow` et de `createRemoteLinkStep`. La seule étape compensable que nous écrivons, `publierCatalogueStep`, est la dernière : rien ne peut échouer après elle, donc sa compensation n'est jamais atteinte. Ne prétendez pas la tester.
+
+La discrimination se prouve autrement, et cette manipulation-là est réelle :
+
+**Faites répondre 200 au stub d'annotation au lieu de 502.** Le workflow va alors jusqu'au bout, les produits persistent, et le test de compensation doit devenir **rouge** sur son assertion de comptage. Remettez le 502, constatez le **vert**. **Consignez les deux sorties dans votre rapport.**
+
+Ce que cela établit : l'assertion est bien sensible à la survenue du retour arrière, et non satisfaite par construction. Ce qu'elle n'établit pas : que nos propres compensations fonctionnent — nous n'en avons aucune sur ce chemin. Si cette asymétrie vous paraît fragile, dites-le : elle signifie que la robustesse du retour arrière repose entièrement sur Medusa.
 
 - [ ] **Step 8 : Commit**
 
