@@ -1,6 +1,7 @@
 import { createStep, StepResponse } from "@medusajs/framework/workflows-sdk"
 import { MERCHANT_MODULE } from "../../modules/merchant"
 import MerchantModuleService from "../../modules/merchant/service"
+import { MOTIF_HANDLE, LONGUEUR_MAX_HANDLE } from "../../modules/merchant/handle"
 
 export type CreateMerchantRecordInput = {
   name: string
@@ -16,11 +17,18 @@ export type CreateMerchantRecordInput = {
 // workflow, script d'import du corpus — persisterait un handle brut. L'index
 // unique de Postgres est sensible à la casse, donc `etal-fatou` et
 // `ETAL-FATOU` se disputeraient la même URL de catalogue sans cette
-// normalisation posée ici, au plus près de la persistance.
-const MOTIF_HANDLE = /^[a-z0-9]+(-[a-z0-9]+)*$/
-
+// normalisation posée ici, au plus près de la persistance. Le motif et la
+// borne de longueur viennent de ../../modules/merchant/handle.ts, partagée
+// avec la route : la borne y est vérifiée sur le handle une fois rogné, donc
+// jamais plus permissive que le contrôle (pré-rognage) de la route.
 function normaliserHandle(brut: string): string {
   const handle = brut.trim().toLowerCase()
+  if (handle.length > LONGUEUR_MAX_HANDLE) {
+    throw new Error(
+      `Le handle « ${brut} » ne doit pas dépasser ${LONGUEUR_MAX_HANDLE} ` +
+      `caractères`
+    )
+  }
   if (!MOTIF_HANDLE.test(handle)) {
     throw new Error(
       `Le handle « ${brut} » doit être composé de lettres minuscules, de ` +

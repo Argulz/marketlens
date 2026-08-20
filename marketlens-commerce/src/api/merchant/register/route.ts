@@ -6,6 +6,7 @@ import { z } from "zod"
 import createMerchantWorkflow from "../../../workflows/create-merchant"
 import { MERCHANT_MODULE } from "../../../modules/merchant"
 import MerchantModuleService from "../../../modules/merchant/service"
+import { MOTIF_HANDLE, LONGUEUR_MAX_HANDLE } from "../../../modules/merchant/handle"
 
 // `handle` est destiné à devenir un segment d'URL publique (`/c/[handle]` au
 // plan 3). Deux conséquences portées par ce motif :
@@ -17,7 +18,11 @@ import MerchantModuleService from "../../../modules/merchant/service"
 //     normalisation, `etal-fatou` et `ETAL-FATOU` sont deux locataires
 //     distincts qui se disputeraient la même URL de catalogue dès que le
 //     routage minusculiserait le segment.
-const MOTIF_HANDLE = /^[a-z0-9]+(-[a-z0-9]+)*$/
+// Le motif et la borne de longueur viennent de ../../../modules/merchant/handle.ts,
+// partagée avec createMerchantRecordStep : cette route est le premier filtre
+// (400 propre), l'étape est le filet pour tout appel direct au workflow — les
+// deux doivent appliquer exactement la même règle, jamais deux copies qui
+// peuvent diverger.
 
 const chaineObligatoire = (champ: string, max: number) =>
   z
@@ -34,7 +39,10 @@ const schemaInscription = z.object({
     .string({
       error: "Le champ handle est obligatoire et doit être une chaîne de caractères",
     })
-    .max(64, "Le champ handle ne doit pas dépasser 64 caractères")
+    .max(
+      LONGUEUR_MAX_HANDLE,
+      `Le champ handle ne doit pas dépasser ${LONGUEUR_MAX_HANDLE} caractères`
+    )
     .transform((valeur) => valeur.trim().toLowerCase())
     .refine(
       (valeur) => MOTIF_HANDLE.test(valeur),
