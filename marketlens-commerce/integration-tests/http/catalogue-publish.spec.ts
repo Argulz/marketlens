@@ -342,6 +342,78 @@ medusaIntegrationTestRunner({
         }
       })
 
+      it("désambiguïse le handle quand le même marchand republie le même libellé", async () => {
+        // Le préfixe marchand (test précédent) ferme la collision ENTRE
+        // marchands, pas CHEZ un même marchand : un même étal republiant
+        // « Jean » — dans un même catalogue via deux zones, ou dans deux
+        // catalogues successifs — produirait deux fois le même
+        // `toHandle(label)` et se percuterait lui-même. C'est exactement ce
+        // que heurte l'import du corpus archivé (tâche 8), où un marchand
+        // republie couramment les mêmes libellés au fil de ses catalogues.
+        const vision1 = await servirVisionFactice({
+          detect: { products: [ZONE_TOMATES, ZONE_PAGNE], count: 2 },
+        })
+        let m: any
+        let b1: any
+        try {
+          const { result: marchand } = await createMerchantWorkflow(getContainer()).run({
+            input: { name: "Étal Répète", handle: "etal-repete", phone: "22990009910" },
+          })
+          m = marchand
+          const { result } = await analyzeCataloguePhotoWorkflow(getContainer()).run({
+            input: { merchant_id: m.merchant_id, filename: "etal-1.jpg", content: CONTENU_PHOTO, title: "Étal jour 1" },
+          })
+          b1 = result
+        } finally {
+          await vision1.fermer()
+        }
+
+        const vision2 = await servirVisionFactice({ detect: { products: [ZONE_TOMATES], count: 1 } })
+        let b2: any
+        try {
+          const { result } = await analyzeCataloguePhotoWorkflow(getContainer()).run({
+            input: { merchant_id: m.merchant_id, filename: "etal-2.jpg", content: CONTENU_PHOTO, title: "Étal jour 2" },
+          })
+          b2 = result
+        } finally {
+          await vision2.fermer()
+        }
+
+        const vision3 = await servirVisionFactice({ detect: { products: [], count: 0 } })
+        try {
+          // Deux zones du MÊME catalogue avec le MÊME libellé.
+          const { result: r1 } = await publishCatalogueWorkflow(getContainer()).run({
+            input: entreePublication(m, b1, [
+              { zone_id: b1.zones[0].id, label: "Jean", price: "5000", quantity: 1, colors: [], sizes: [] },
+              { zone_id: b1.zones[1].id, label: "Jean", price: "5500", quantity: 1, colors: [], sizes: [] },
+            ]),
+          })
+          // Un second catalogue du MÊME marchand republie le MÊME libellé.
+          const { result: r2 } = await publishCatalogueWorkflow(getContainer()).run({
+            input: entreePublication(m, b2, [
+              { zone_id: b2.zones[0].id, label: "Jean", price: "6000", quantity: 1, colors: [], sizes: [] },
+            ]),
+          })
+
+          expect(r1.product_ids).toHaveLength(2)
+          expect(r2.product_ids).toHaveLength(1)
+
+          const query = getContainer().resolve(ContainerRegistrationKeys.QUERY)
+          const { data } = await query.graph({
+            entity: "product",
+            fields: ["id", "handle"],
+            filters: { id: [...r1.product_ids, ...r2.product_ids] },
+          })
+          const handles = (data as any[]).map((p) => p.handle)
+          expect(new Set(handles).size).toBe(3) // aucune collision, même libellé x3
+          for (const h of handles) {
+            expect(h.startsWith("etal-repete-jean-")).toBe(true)
+          }
+        } finally {
+          await vision3.fermer()
+        }
+      })
+
       it("refuse de publier un catalogue qui n'appartient pas au marchand indiqué", async () => {
         const { brouillon: b1 } = await creerMarchandEtBrouillon(
           getContainer, "etal-publication-proprio", "Étal Propriétaire"

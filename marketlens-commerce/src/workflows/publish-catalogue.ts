@@ -95,7 +95,22 @@ const publishCatalogueWorkflow = createWorkflow(
           // préfixe donc par le handle du marchand plutôt que son
           // identifiant : déjà unique, et lisible dans une URL
           // publique (`/c/<handle>/...`) là où l'identifiant ne l'est pas.
-          handle: `${d.verif.merchant_handle}-${toHandle(item.label)}`,
+          //
+          // Le préfixe marchand ferme la collision ENTRE marchands, pas
+          // CHEZ un même marchand : un marchand qui publie deux fois
+          // « Tomates fraîches » (même catalogue avec deux zones identiques,
+          // ou deux catalogues successifs) produit deux fois le même
+          // `toHandle(title)` et se percute lui-même. Le corpus archivé
+          // (tâche 8) heurte réellement ce cas — un même étal republie
+          // plusieurs fois « Jean » ou « Chemise à carreaux » au fil de ses
+          // catalogues. On désambiguïse donc par un second suffixe dérivé de
+          // `zone_id` : cet identifiant est déjà unique (clé primaire de
+          // `catalogue_zone`), et sa portion finale porte l'aléa du ULID (les
+          // dix premiers caractères ne codent qu'un horodatage — voir
+          // generate-entity-id.js — potentiellement partagé par des zones
+          // créées dans le même lot). Cette désambiguïsation reste stable :
+          // à zone_id égal, le handle produit est toujours le même.
+          handle: `${d.verif.merchant_handle}-${toHandle(item.label)}-${item.zone_id.slice(-8).toLowerCase()}`,
           description: item.description ?? "",
           status: "published" as const,
           sales_channels: [{ id: d.input.sales_channel_id }],
