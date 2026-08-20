@@ -212,6 +212,44 @@ medusaIntegrationTestRunner({
           expect(
             niveaux.map((n: any) => n.stocked_quantity).sort((a: number, b: number) => a - b)
           ).toEqual([4, 4, 4, 4, 12])
+
+          // L'appariement article ↔ produit, vérifié de bout en bout : la zone
+          // désignée par un article porte le produit de CET article, et son
+          // stock est la quantité saisie pour lui. Apparié par index (l'état
+          // d'avant), tout ceci resterait vrai tant que
+          // `createProductsWorkflow` rend ses produits dans l'ordre des
+          // entrées — et deviendrait faux, en silence, le jour où il ne le
+          // ferait plus. Ces assertions fixent l'invariant que le
+          // rapprochement par handle garantit désormais par construction.
+          const { data: zonesLiees } = await query.graph({
+            entity: "catalogue_zone",
+            fields: ["id", "product.id", "product.title"],
+            filters: { id: zones.map((z: any) => z.id) },
+          })
+          const produitParZone = new Map(
+            (zonesLiees as any[]).map((z) => [z.id, z.product])
+          )
+          expect(produitParZone.get(zones[0].id)?.title).toBe("Tomates fraîches")
+          expect(produitParZone.get(zones[1].id)?.title).toBe("Pagne wax")
+
+          const { data: avecInventaire } = await query.graph({
+            entity: "product",
+            fields: ["id", "title", "variants.inventory_items.inventory_item_id"],
+            filters: { id: result.product_ids },
+          })
+          for (const produit of avecInventaire as any[]) {
+            const attendu = produit.title === "Tomates fraîches" ? 12 : 4
+            for (const variante of produit.variants) {
+              for (const article of variante.inventory_items ?? []) {
+                const niveauxDuProduit = await inventoryService.listInventoryLevels({
+                  inventory_item_id: article.inventory_item_id,
+                  location_id: m.stock_location_id,
+                })
+                expect(niveauxDuProduit).toHaveLength(1)
+                expect(niveauxDuProduit[0].stocked_quantity).toBe(attendu)
+              }
+            }
+          }
         } finally {
           await vision.fermer()
         }

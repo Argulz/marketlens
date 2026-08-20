@@ -386,6 +386,21 @@ export default async function seedLegacy({ container, args }: ExecArgs) {
         // zone (mauvaises coordonnées d'annotation, mauvais lien produit↔zone).
         const paires = meta.products.map((produit, i) => ({ produit, zone: brouillon.zones[i] }))
 
+        // Cet appariement par index reste une HYPOTHÈSE sur l'ordre rendu, là
+        // où la publication, elle, apparie désormais par handle. On la vérifie
+        // donc au lieu de lui faire confiance : le libellé détecté persisté
+        // sur la zone doit être celui du produit qu'on lui associe. Sans ce
+        // contrôle, un décalage d'ordre importerait chaque article sur la
+        // mauvaise zone — mauvaises coordonnées d'annotation, mauvais lien
+        // produit ↔ zone — sans lever la moindre erreur.
+        for (const paire of paires) {
+          if (!paire.zone || paire.zone.detected_label !== paire.produit.label) {
+            throw new Error(
+              `Appariement zone/produit incohérent pour ${dossier} : la zone porte « ${paire.zone?.detected_label} » là où l'archive attend « ${paire.produit.label} ».`
+            )
+          }
+        }
+
         const zonesPourPublication = brouillon.zones.map((z) => ({
           id: z.id,
           x: z.x,

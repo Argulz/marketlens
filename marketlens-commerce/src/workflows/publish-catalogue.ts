@@ -6,12 +6,13 @@ import {
   uploadFilesWorkflow,
   useQueryGraphStep,
 } from "@medusajs/medusa/core-flows"
-import { Modules, toHandle } from "@medusajs/framework/utils"
+import { Modules } from "@medusajs/framework/utils"
 import { VISUAL_CATALOG_MODULE } from "../modules/visual-catalog"
 import { annotateCatalogueStep } from "./steps/annotate-catalogue"
 import { publierCatalogueStep } from "./steps/publier-catalogue"
 import { verifierCatalogueMarchandStep } from "./steps/verifier-catalogue-marchand"
 import { validerItemsPublicationStep } from "./steps/valider-items-publication"
+import { apparierParHandle, handleProduitPublie } from "./appariement-produits"
 
 export type ItemPublication = {
   zone_id: string
@@ -84,33 +85,13 @@ const publishCatalogueWorkflow = createWorkflow(
 
         return {
           title: item.label,
-          // Le handle produit porte un index unique à l'échelle de
-          // l'instance (`IDX_product_handle_unique`), tout comme le
-          // handle catalogue ou le sous-domaine marchand — une troisième
-          // construction globale que rien d'autre ne protège. Sans
-          // préfixe, Medusa le dérive du titre (`toHandle(title)`) et deux
-          // marchands publiant « Tomates fraîches » se disputent le même
-          // handle : le second échoue après création de ses produits,
-          // compensés mais sur un message technique en anglais. On
-          // préfixe donc par le handle du marchand plutôt que son
-          // identifiant : déjà unique, et lisible dans une URL
-          // publique (`/c/<handle>/...`) là où l'identifiant ne l'est pas.
-          //
-          // Le préfixe marchand ferme la collision ENTRE marchands, pas
-          // CHEZ un même marchand : un marchand qui publie deux fois
-          // « Tomates fraîches » (même catalogue avec deux zones identiques,
-          // ou deux catalogues successifs) produit deux fois le même
-          // `toHandle(title)` et se percute lui-même. Le corpus archivé
-          // (tâche 8) heurte réellement ce cas — un même étal republie
-          // plusieurs fois « Jean » ou « Chemise à carreaux » au fil de ses
-          // catalogues. On désambiguïse donc par un second suffixe dérivé de
-          // `zone_id` : cet identifiant est déjà unique (clé primaire de
-          // `catalogue_zone`), et sa portion finale porte l'aléa du ULID (les
-          // dix premiers caractères ne codent qu'un horodatage — voir
-          // generate-entity-id.js — potentiellement partagé par des zones
-          // créées dans le même lot). Cette désambiguïsation reste stable :
-          // à zone_id égal, le handle produit est toujours le même.
-          handle: `${d.verif.merchant_handle}-${toHandle(item.label)}-${item.zone_id.slice(-8).toLowerCase()}`,
+          // Handle engendré par `handleProduitPublie` (appariement-produits.ts),
+          // seule définition de cette construction : les deux appariements en
+          // aval (quantité de stock, lien zone → produit) recalculent le même
+          // handle pour retrouver LEUR produit. Une seconde copie de cette
+          // formule ici, même identique aujourd'hui, ferait divergence
+          // demain — et l'appariement redeviendrait faux en silence.
+          handle: handleProduitPublie(d.verif.merchant_handle, item),
           description: item.description ?? "",
           status: "published" as const,
           sales_channels: [{ id: d.input.sales_channel_id }],
@@ -146,7 +127,7 @@ const publishCatalogueWorkflow = createWorkflow(
 
     // Les articles d'inventaire naissent avec les variantes ; on leur pose un
     // niveau à l'emplacement du marchand, seul endroit où son stock existe.
-    const niveaux = transform({ input, produits, produitsAvecInventaire }, (d) => {
+    const niveaux = transform({ input, produits, produitsAvecInventaire, verif }, (d) => {
       const inventaireParVariante = new Map<string, { inventory_item_id: string }[]>()
       for (const produit of d.produitsAvecInventaire.data as any[]) {
         for (const variante of produit.variants ?? []) {
@@ -160,27 +141,43 @@ const publishCatalogueWorkflow = createWorkflow(
         }
       }
 
-      return {
-        inventory_levels: d.produits.flatMap((produit, i) =>
-          produit.variants.flatMap((variante) =>
-            (inventaireParVariante.get(variante.id) ?? []).map((article) => ({
-              inventory_item_id: article.inventory_item_id,
-              location_id: d.input.stock_location_id,
-              stocked_quantity: d.input.items[i].quantity,
-            }))
-          )
-        ),
-      }
+      // La quantité saisie sur un article doit atterrir sur LE produit de cet
+      // article. L'appariement par index (`d.input.items[i]`) supposait que
+      // `createProductsWorkflow` rende ses produits dans l'ordre des entrées :
+      // un changement d'ordre y aurait envoyé le stock des tomates sur le
+      // pagne, sans lever la moindre erreur.
+      const inventory_levels = apparierParHandle(
+        d.verif.merchant_handle,
+        d.input.items,
+        d.produits
+      ).flatMap(({ item, produit }) =>
+        produit.variants.flatMap((variante) =>
+          (inventaireParVariante.get(variante.id) ?? []).map((article) => ({
+            inventory_item_id: article.inventory_item_id,
+            location_id: d.input.stock_location_id,
+            stocked_quantity: item.quantity,
+          }))
+        )
+      )
+
+      return { inventory_levels }
     })
 
     createInventoryLevelsWorkflow.runAsStep({ input: niveaux })
 
+    // Même appariement par handle que pour les niveaux de stock : c'est ce
+    // lien qui fait dire à la vitrine « cette zone de l'image, c'est ce
+    // produit ». Apparié par index, il aurait pu faire pointer la zone des
+    // tomates vers le pagne wax — une vitrine qui mentirait sans qu'aucune
+    // erreur ne soit levée.
     createRemoteLinkStep(
-      transform({ input, produits }, (d) =>
-        d.input.items.map((item, i) => ({
-          [VISUAL_CATALOG_MODULE]: { catalogue_zone_id: item.zone_id },
-          [Modules.PRODUCT]: { product_id: d.produits[i].id },
-        }))
+      transform({ input, produits, verif }, (d) =>
+        apparierParHandle(d.verif.merchant_handle, d.input.items, d.produits).map(
+          ({ item, produit }) => ({
+            [VISUAL_CATALOG_MODULE]: { catalogue_zone_id: item.zone_id },
+            [Modules.PRODUCT]: { product_id: produit.id },
+          })
+        )
       )
     )
 
