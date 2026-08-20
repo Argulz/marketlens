@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MarketLens — démonstration</title>
+<style>
+  :root{
+    --fond:#0f1115; --carte:#171a21; --bord:#262b36; --texte:#e8eaed;
+    --doux:#9aa3b2; --accent:#ff8a3d; --ok:#3ddc97; --err:#ff5c6c;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--fond);color:var(--texte);
+    font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+  header{padding:28px 32px 20px;border-bottom:1px solid var(--bord)}
+  h1{margin:0;font-size:20px;letter-spacing:-.2px}
+  h1 span{color:var(--accent)}
+  header p{margin:6px 0 0;color:var(--doux);font-size:13.5px}
+  main{max-width:1080px;margin:0 auto;padding:28px 32px 80px;
+    display:flex;flex-direction:column;gap:18px}
+  .acte{background:var(--carte);border:1px solid var(--bord);border-radius:12px;overflow:hidden}
+  .acte>h2{margin:0;padding:15px 20px;font-size:14px;font-weight:600;
+    letter-spacing:.02em;display:flex;align-items:center;gap:11px;cursor:pointer}
+  .num{width:23px;height:23px;flex:0 0 23px;border-radius:50%;background:#222836;
+    color:var(--doux);display:grid;place-items:center;font-size:12px;font-weight:700}
+  .acte.fait .num{background:var(--ok);color:#06281c}
+  .acte.actif .num{background:var(--accent);color:#2b1200}
+  .corps{padding:0 20px 20px;border-top:1px solid var(--bord)}
+  .acte.replie .corps{display:none}
+  label{display:block;font-size:12px;color:var(--doux);margin:13px 0 5px}
+  input,select{width:100%;padding:9px 11px;background:#0e1016;color:var(--texte);
+    border:1px solid var(--bord);border-radius:7px;font:inherit;font-size:14px}
+  input:focus,select:focus{outline:none;border-color:var(--accent)}
+  .grille{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+  button{margin-top:16px;padding:10px 18px;background:var(--accent);color:#2b1200;
+    border:0;border-radius:7px;font:inherit;font-weight:650;cursor:pointer}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.sec{background:transparent;color:var(--doux);border:1px solid var(--bord)}
+  .msg{margin-top:14px;padding:10px 13px;border-radius:7px;font-size:13.5px;
+    white-space:pre-wrap;display:none}
+  .msg.ok{display:block;background:#0f2a20;color:var(--ok);border:1px solid #1c4636}
+  .msg.err{display:block;background:#2a1216;color:var(--err);border:1px solid #4a1f27}
+  .msg.info{display:block;background:#141821;color:var(--doux);border:1px solid var(--bord)}
+  .scene{position:relative;margin-top:16px;border-radius:9px;overflow:hidden;
+    border:1px solid var(--bord);line-height:0}
+  .scene img{width:100%;display:block}
+  .zone{position:absolute;border:2px solid var(--accent);border-radius:3px;
+    background:rgba(255,138,61,.11)}
+  .zone b{position:absolute;top:-1px;left:-1px;background:var(--accent);color:#2b1200;
+    font:600 11px/1.5 ui-sans-serif,system-ui,sans-serif;padding:1px 6px;
+    border-radius:3px 0 3px 0;white-space:nowrap}
+  table{width:100%;border-collapse:collapse;margin-top:14px;font-size:13.5px}
+  th{text-align:left;color:var(--doux);font-weight:500;font-size:11.5px;
+    text-transform:uppercase;letter-spacing:.05em;padding:0 9px 7px}
+  td{padding:5px 9px;border-top:1px solid var(--bord)}
+  td input{padding:7px 9px;font-size:13.5px}
+  .etiq{color:var(--doux);font-size:11.5px;margin-top:3px}
+  code{background:#0b0d12;padding:2px 6px;border-radius:4px;font-size:12.5px;
+    color:var(--doux);word-break:break-all}
+  a{color:var(--accent)}
+  .prix{color:var(--ok);font-weight:600}
+</style>
+</head>
+<body>
+<header>
+  <h1>Market<span>Lens</span> — parcours marchand</h1>
+  <p>Banc d'essai du lot 3. Chaque bouton appelle la vraie API : rien n'est simulé.</p>
+</header>
+
+<main>
+  <!-- 1 -->
+  <section class="acte actif" id="a1">
+    <h2><i class="num">1</i> Le marchand s'inscrit et reçoit sa boutique</h2>
+    <div class="corps">
+      <div class="grille">
+        <div><label>Nom de la boutique</label><input id="nom" value="Étal de Fatou"></div>
+        <div><label>Handle (segment d'URL)</label><input id="handle"></div>
+        <div><label>Téléphone</label><input id="tel" value="97000001"></div>
+        <div><label>WhatsApp</label><input id="wa" value="22997000001"></div>
+      </div>
+      <button id="b1">Créer la boutique</button>
+      <div class="msg" id="m1"></div>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section class="acte replie" id="a2">
+    <h2><i class="num">2</i> La photo de l'étal devient un catalogue</h2>
+    <div class="corps">
+      <label>Titre du catalogue</label>
+      <input id="titre" value="Étal du samedi">
+      <label>Photo de l'étal</label>
+      <input type="file" id="photo" accept="image/jpeg,image/png,image/webp">
+      <div class="etiq">JPEG, PNG ou WebP — moins de 18 Mo. Le HEIC de l'iPhone est refusé.</div>
+      <button id="b2" disabled>Analyser la photo</button>
+      <div class="msg" id="m2"></div>
+      <div class="scene" id="scene" style="display:none"><img id="apercu" alt=""></div>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section class="acte replie" id="a3">
+    <h2><i class="num">3</i> Le marchand tarifie et publie</h2>
+    <div class="corps">
+      <div class="etiq">Une ligne par zone détectée. Décochez pour ne pas mettre une zone en vente.</div>
+      <table id="tab">
+        <thead><tr><th style="width:34px"></th><th>Libellé</th><th style="width:110px">Prix (XOF)</th>
+        <th style="width:90px">Stock</th><th>Couleurs</th><th>Tailles</th></tr></thead>
+        <tbody id="lignes"></tbody>
+      </table>
+      <div class="etiq">Couleurs et tailles séparées par des virgules. 2 couleurs × 2 tailles = 4 variantes.</div>
+      <button id="b3">Publier le catalogue</button>
+      <div class="msg" id="m3"></div>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section class="acte replie" id="a4">
+    <h2><i class="num">4</i> La vitrine publique</h2>
+    <div class="corps">
+      <div class="msg info" id="m4url"></div>
+      <button id="b4" class="sec">Recharger la vitrine</button>
+      <div class="msg" id="m4"></div>
+      <div class="scene" id="scene2" style="display:none"><img id="annotee" alt=""></div>
+      <table id="tab2" style="display:none">
+        <thead><tr><th>Produit</th><th>Zone détectée</th><th>Variantes</th></tr></thead>
+        <tbody id="lignes2"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 5 -->
+  <section class="acte replie" id="a5">
+    <h2><i class="num">5</i> L'isolation, en une requête</h2>
+    <div class="corps">
+      <div class="etiq">Crée un second marchand et interroge SES catalogues avec SON jeton.
+        Il ne doit rien voir de la boutique précédente.</div>
+      <button id="b5" class="sec">Vérifier le cloisonnement</button>
+      <div class="msg" id="m5"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id)
+const etat = { jeton:null, cle:null, catalogue:null, zones:[], handleCat:null, apercu:null }
+
+const suffixe = Math.random().toString(36).slice(2,7)
+$("handle").value = "etal-de-fatou-" + suffixe
+
+function dire(el, texte, genre){ el.className = "msg " + genre; el.textContent = texte }
+
+function ouvrir(n){
+  document.querySelectorAll(".acte").forEach(s => s.classList.remove("actif"))
+  const s = $("a"+n); s.classList.remove("replie"); s.classList.add("actif")
+  s.scrollIntoView({behavior:"smooth", block:"start"})
+}
+function terminer(n){ $("a"+n).classList.add("fait") }
+
+document.querySelectorAll(".acte>h2").forEach(h =>
+  h.onclick = () => h.parentElement.classList.toggle("replie"))
+
+async function api(methode, chemin, corps, avecJeton){
+  const opts = { method: methode, headers: {} }
+  if (avecJeton) opts.headers["authorization"] = "Bearer " + etat.jeton
+  if (corps instanceof FormData) { opts.body = corps }
+  else if (corps) { opts.headers["content-type"] = "application/json"; opts.body = JSON.stringify(corps) }
+  const r = await fetch(chemin, opts)
+  const texte = await r.text()
+  let data; try { data = JSON.parse(texte) } catch { data = { message: texte.slice(0,300) } }
+  if (!r.ok) throw new Error("[" + r.status + "] " + (data.message || texte.slice(0,200)))
+  return data
+}
+
+/* ---------- 1. inscription ---------- */
+/* le POST /merchant/register a besoin du jeton d'inscription, pas du jeton marchand */
+async function inscrireMarchand(jetonInscription, corps){
+  const r = await fetch("/merchant/register",{
+    method:"POST",
+    headers:{ "content-type":"application/json", authorization:"Bearer "+jetonInscription },
+    body: JSON.stringify(corps)
+  })
+  const d = await r.json().catch(()=>({}))
+  if (!r.ok) throw new Error("["+r.status+"] "+(d.message||"inscription refusée"))
+  return d
+}
+
+$("b1").onclick = async () => {
+  const b = $("b1"); b.disabled = true
+  const handle = $("handle").value.trim()
+  const email = handle + "@demo.bj", motdepasse = "demo1234"
+  try {
+    dire($("m1"), "Création de l'identité…", "info")
+    const insc = await api("POST","/auth/merchant/emailpass/register",{email,password:motdepasse})
+    dire($("m1"), "Provisionnement de la boutique…", "info")
+    const creation = await inscrireMarchand(insc.token, {
+      name:$("nom").value.trim(), handle, phone:$("tel").value.trim(),
+      whatsapp_phone:$("wa").value.trim()
+    })
+    dire($("m1"), "Connexion…", "info")
+    const conn = await api("POST","/auth/merchant/emailpass",{email,password:motdepasse})
+    etat.jeton = conn.token
+    etat.cle = creation.publishable_key
+    const moi = await api("GET","/merchant/me",null,true)
+    dire($("m1"),
+      "Boutique créée.\n\n" +
+      "Canal de vente, emplacement de stock et clé publiable provisionnés en une " +
+      "requête — l'isolation est structurelle, pas applicative.\n\n" +
+      "Marchand : " + moi.merchant.name + " · statut " + moi.merchant.status +
+      " · devise " + moi.merchant.currency_code + "\n" +
+      "Clé publiable : " + etat.cle, "ok")
+    terminer(1); $("b2").disabled = false; ouvrir(2)
+  } catch(e){ dire($("m1"), e.message, "err"); b.disabled = false }
+}
+
+/* ---------- 2. analyse ---------- */
+$("photo").onchange = () => {
+  const f = $("photo").files[0]; if (!f) return
+  etat.apercu = URL.createObjectURL(f)
+  $("apercu").src = etat.apercu; $("scene").style.display = "block"
+  document.querySelectorAll(".zone").forEach(z => z.remove())
+}
+$("b2").onclick = async () => {
+  const f = $("photo").files[0]
+  if (!f) return dire($("m2"), "Choisissez une photo d'étal.", "err")
+  const b = $("b2"); b.disabled = true
+  dire($("m2"), "Gemini analyse la photo… (quelques secondes)", "info")
+  try {
+    const fd = new FormData()
+    fd.append("image", f); fd.append("title", $("titre").value.trim())
+    const r = await api("POST","/merchant/catalogues", fd, true)
+    etat.catalogue = r.catalogue.id; etat.zones = r.zones
+    etat.handleCat = r.catalogue.handle
+    dessinerZones(r.zones)
+    dire($("m2"),
+      r.zones.length + " zone(s) détectée(s). Le catalogue est en BROUILLON : " +
+      "rien n'est publié, rien n'est vendable.\n\n" +
+      "Le module visuel ne stocke que la géométrie et le libellé — ni prix, ni " +
+      "variantes, ni stock. C'est cette frontière qui rendra possible l'inventaire " +
+      "par re-photographie.\n\nHandle du catalogue : " + r.catalogue.handle, "ok")
+    remplirTableau(r.zones)
+    terminer(2); ouvrir(3)
+  } catch(e){ dire($("m2"), e.message, "err") }
+  b.disabled = false
+}
+
+function dessinerZones(zones){
+  document.querySelectorAll(".zone").forEach(z => z.remove())
+  const scene = $("scene")
+  zones.forEach(z => {
+    const d = document.createElement("div")
+    d.className = "zone"
+    d.style.left   = (z.x/10) + "%"
+    d.style.top    = (z.y/10) + "%"
+    d.style.width  = (z.width/10) + "%"
+    d.style.height = (z.height/10) + "%"
+    d.innerHTML = "<b></b>"
+    d.querySelector("b").textContent = z.detected_label
+    scene.appendChild(d)
+  })
+}
+
+/* ---------- 3. tarification ---------- */
+function remplirTableau(zones){
+  $("lignes").innerHTML = ""
+  zones.forEach((z,i) => {
+    const tr = document.createElement("tr")
+    tr.innerHTML =
+      '<td><input type="checkbox" checked style="width:auto" data-r="'+i+'"></td>' +
+      '<td><input data-lib="'+i+'"></td>' +
+      '<td><input data-prix="'+i+'" value="1500"></td>' +
+      '<td><input data-qte="'+i+'" value="10"></td>' +
+      '<td><input data-coul="'+i+'" placeholder="rouge, bleu"></td>' +
+      '<td><input data-tail="'+i+'" placeholder="M, L"></td>'
+    $("lignes").appendChild(tr)
+    tr.querySelector('[data-lib="'+i+'"]').value = z.detected_label
+  })
+}
+const liste = (v) => v.split(",").map(s=>s.trim()).filter(Boolean)
+
+$("b3").onclick = async () => {
+  const b = $("b3"); b.disabled = true
+  const items = []
+  etat.zones.forEach((z,i) => {
+    if (!document.querySelector('[data-r="'+i+'"]').checked) return
+    items.push({
+      zone_id: z.id,
+      label: document.querySelector('[data-lib="'+i+'"]').value.trim(),
+      price: document.querySelector('[data-prix="'+i+'"]').value.trim(),
+      quantity: Number(document.querySelector('[data-qte="'+i+'"]').value),
+      colors: liste(document.querySelector('[data-coul="'+i+'"]').value),
+      sizes:  liste(document.querySelector('[data-tail="'+i+'"]').value)
+    })
+  })
+  dire($("m3"), "Création des produits, des variantes et du stock…", "info")
+  try {
+    await api("POST","/merchant/catalogues/"+etat.catalogue+"/publish",{items},true)
+    dire($("m3"),
+      items.length + " produit(s) Medusa créé(s) dans le canal de vente du marchand, " +
+      "avec leurs variantes et leur stock réel. L'image annotée est générée.\n\n" +
+      "Une seconde publication du même catalogue serait refusée en 409.", "ok")
+    terminer(3); ouvrir(4); chargerVitrine()
+  } catch(e){ dire($("m3"), e.message, "err") }
+  b.disabled = false
+}
+
+/* ---------- 4. vitrine ---------- */
+async function chargerVitrine(){
+  const url = "/store/catalogues/" + etat.handleCat
+  $("m4url").textContent = "GET " + url + "   (en-tête x-publishable-api-key)"
+  dire($("m4"), "Chargement…", "info")
+  try {
+    const r = await fetch(url, { headers: { "x-publishable-api-key": etat.cle } })
+    const d = await r.json()
+    if (!r.ok) throw new Error("["+r.status+"] "+(d.message||""))
+    const cat = d.catalogue || {}
+    if (cat.annotated_image_url){
+      $("annotee").src = cat.annotated_image_url
+      $("scene2").style.display = "block"
+    }
+    const zones = d.zones || []
+    $("lignes2").innerHTML = ""
+    zones.forEach(z => {
+      const p = z.product
+      const tr = document.createElement("tr")
+      const vars = p && p.variants ? p.variants.map(v=>v.title).join(", ") : "—"
+      tr.innerHTML = "<td>"+(p ? p.title : "<i style='color:#9aa3b2'>zone non mise en vente</i>")+
+        "</td><td style='color:#9aa3b2'>"+z.detected_label+"</td><td>"+vars+"</td>"
+      $("lignes2").appendChild(tr)
+    })
+    $("tab2").style.display = "table"
+    dire($("m4"),
+      "Vitrine publique servie. L'image annotée porte les zones et les prix incrustés.\n\n" +
+      "Une zone peut ne porter aucun produit : le marchand ne tarifie pas " +
+      "forcément tout ce que Gemini détecte.", "ok")
+    terminer(4); ouvrir(5)
+  } catch(e){ dire($("m4"), e.message, "err") }
+}
+$("b4").onclick = chargerVitrine
+
+/* ---------- 5. isolation ---------- */
+$("b5").onclick = async () => {
+  const b = $("b5"); b.disabled = true
+  const h = "concurrent-" + Math.random().toString(36).slice(2,7)
+  const email = h + "@demo.bj", mdp = "demo1234"
+  dire($("m5"), "Création d'un second marchand…", "info")
+  try {
+    const insc = await api("POST","/auth/merchant/emailpass/register",{email,password:mdp})
+    await inscrireMarchand(insc.token, { name:"Boutique concurrente", handle:h, phone:"97000999" })
+    const conn = await api("POST","/auth/merchant/emailpass",{email,password:mdp})
+    const r = await fetch("/merchant/catalogues", {
+      headers: { authorization: "Bearer " + conn.token } })
+    const d = await r.json()
+    const n = (d.catalogues || []).length
+    dire($("m5"),
+      n === 0
+        ? "Le second marchand voit 0 catalogue.\n\nL'identité du marchand vient " +
+          "TOUJOURS du jeton, jamais du client : aucun paramètre d'URL ou de corps " +
+          "ne permet de désigner une autre boutique."
+        : "ANOMALIE : il voit " + n + " catalogue(s).",
+      n === 0 ? "ok" : "err")
+    terminer(5)
+  } catch(e){ dire($("m5"), e.message, "err") }
+  b.disabled = false
+}
+</script>
+</body>
+</html>
