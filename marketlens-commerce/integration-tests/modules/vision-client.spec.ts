@@ -27,6 +27,15 @@ function servir(gestionnaire): Promise<{ url: string; fermer: () => Promise<void
 }
 
 describe("Client du service de vision", () => {
+  // Chaque test doit pouvoir être lancé seul, filtré (`-t`) ou réordonné :
+  // les deux variables sont donc reposées avant chaque test plutôt que
+  // laissées à la charge d'un voisin (process.env est global au process,
+  // et --runInBand ne protège pas contre un `-t` qui saute un test).
+  beforeEach(() => {
+    process.env.VISION_SERVICE_URL = "http://127.0.0.1:0"
+    process.env.VISION_SERVICE_SECRET = "secret-de-test"
+  })
+
   it("transmet le secret partagé et rend les zones détectées", async () => {
     const s = await servir((_req, res) => {
       res.writeHead(200, { "content-type": "application/json" })
@@ -37,7 +46,6 @@ describe("Client du service de vision", () => {
     })
     try {
       process.env.VISION_SERVICE_URL = s.url
-      process.env.VISION_SERVICE_SECRET = "secret-de-test"
 
       const zones = await detecterProduits(JPEG, "etal.jpg")
       expect(zones).toHaveLength(1)

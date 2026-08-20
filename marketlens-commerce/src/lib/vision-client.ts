@@ -42,11 +42,13 @@ async function appeler(chemin: string, corps: FormData): Promise<Response> {
   }
 
   if (reponse.status >= 400 && reponse.status < 500) {
+    await reponse.text().catch(() => {})
     throw new VisionRefuse(
       `Le service de vision a refusé la requête (${reponse.status})`
     )
   }
   if (!reponse.ok) {
+    await reponse.text().catch(() => {})
     throw new VisionIndisponible(
       `Le service de vision a échoué (${reponse.status})`
     )
