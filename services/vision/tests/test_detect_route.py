@@ -1,5 +1,6 @@
 import pytest
 
+from app.detection import ConfigurationGeminiRefusee
 from app.main import app, get_detector
 
 ENTETE = {"X-Vision-Secret": "secret-de-test"}
@@ -157,3 +158,17 @@ def test_get_detector_transmet_les_reglages_de_delai_depuis_l_environnement(monk
     assert detecteur_construit.deadline_s == 12
     assert detecteur_construit.timeout_ms == 5000
     assert detecteur_construit.max_retries == 7
+
+
+def test_renvoie_500_si_gemini_refuse_notre_configuration(client):
+    """Une clé ou un modèle invalide est notre faute, pas une panne amont.
+    Un 502 enverrait Medusa réessayer et l'exploitant chercher chez Gemini,
+    alors que le défaut est dans le .env — aucun réessai n'y changera rien."""
+    reponse = _detecte_avec(
+        client,
+        ConfigurationGeminiRefusee(
+            "Gemini a refusé la requête (400) : vérifiez GEMINI_API_KEY et GEMINI_MODEL"
+        ),
+    )
+    assert reponse.status_code == 500
+    assert "GEMINI_API_KEY" in reponse.json()["detail"]

@@ -18,6 +18,7 @@ from app.detection import (
     FormatImageInvalide,
     ProductDetector,
     QuotaGeminiDepasse,
+    ConfigurationGeminiRefusee,
     ReponseGeminiInvalide,
 )
 
@@ -219,3 +220,21 @@ def test_l_echeance_globale_est_configurable(monkeypatch):
     assert d.deadline_s == 12.0
     assert d.timeout_ms == 5_000
     assert d.max_retries == 7
+
+
+def test_ne_reessaie_pas_une_cle_api_invalide(gemini):
+    """Une clé invalide est une erreur de NOTRE configuration, pas une panne
+    amont : la réessayer trois fois est inutile, et la rendre en 502 envoie
+    l'exploitant chercher la panne chez Gemini au lieu de son .env."""
+    gemini.programmer(erreur_api(400, "INVALID_ARGUMENT"), REPONSE_OK, REPONSE_OK)
+    with pytest.raises(ConfigurationGeminiRefusee):
+        asyncio.run(detecteur().detect(JPEG))
+    assert len(gemini.appels()) == 1
+
+
+def test_ne_reessaie_pas_un_acces_refuse(gemini):
+    """Un 403 est tout aussi déterministe qu'un 400."""
+    gemini.programmer(erreur_api(403, "PERMISSION_DENIED"), REPONSE_OK, REPONSE_OK)
+    with pytest.raises(ConfigurationGeminiRefusee):
+        asyncio.run(detecteur().detect(JPEG))
+    assert len(gemini.appels()) == 1

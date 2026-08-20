@@ -11,6 +11,7 @@ from app.annotation import AnnotationInvalide, annotate_image
 from app.auth import require_service_secret
 from app.config import get_settings
 from app.detection import (
+    ConfigurationGeminiRefusee,
     DelaiGlobalDepasse,
     FormatImageInvalide,
     ProductDetector,
@@ -119,6 +120,12 @@ async def detect(
         # absence de réponse à temps).
         logger.warning(f"Échéance globale dépassée: {e}")
         raise HTTPException(status_code=504, detail=DELAI_DEPASSE) from e
+    except ConfigurationGeminiRefusee as e:
+        # Doit précéder `except RuntimeError` : ConfigurationGeminiRefusee en
+        # est une sous-classe, et la clause générique l'ombrerait — le défaut
+        # de configuration passerait pour une panne amont.
+        logger.error(f"Configuration Gemini refusée: {e}")
+        raise HTTPException(status_code=500, detail=str(e)) from e
     except RuntimeError as e:  # DetectionError en est une sous-classe
         # Le détail remonte potentiellement jusqu'à l'écran d'un marchand
         # via Medusa : journaliser la cause, ne renvoyer qu'un message stable.

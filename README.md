@@ -32,6 +32,11 @@ désélectionnés par défaut. Pour les lancer (consomme du quota) :
 
 ## Contrat HTTP du service de vision
 
+> **Après toute modification de `services/vision/.env`, redémarrez le service.**
+> Les variables sont lues une seule fois à l'import, et `uvicorn --reload` ne
+> surveille que les fichiers `.py` : une clé corrigée ne sera pas reprise tant
+> que le processus n'a pas été relancé.
+
 Service sans état, jamais exposé publiquement. Toutes les routes sauf
 `/health` exigent l'en-tête `X-Vision-Secret` (secret partagé avec Medusa).
 Schéma faisant foi : `GET /openapi.json`.
@@ -78,7 +83,7 @@ parenthèses) :
 | 413 | Image au-delà de `MAX_IMAGE_BYTES` (20 Mo par défaut) | Non |
 | 422 | Champ `image` absent du multipart (validation FastAPI) | Non |
 | 429 | Quota Gemini dépassé en amont | Oui, plus tard |
-| 500 | Service mal configuré (`GEMINI_API_KEY` ou `VISION_SERVICE_SECRET` absent) | Non |
+| 500 | Service mal configuré : `GEMINI_API_KEY` ou `VISION_SERVICE_SECRET` absent, ou clé/modèle **refusés par Gemini** (400, 403, 404) | Non |
 | 502 | Échec Gemini après réessais, ou réponse inexploitable | Oui |
 | 504 | Échéance globale (`VISION_DEADLINE_S`) dépassée avant une réponse exploitable | Oui |
 

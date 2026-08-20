@@ -31,6 +31,18 @@ class ReponseGeminiInvalide(DetectionError):
     """Gemini a répondu autre chose que du JSON. Déterministe : pas de réessai."""
 
 
+class ConfigurationGeminiRefusee(RuntimeError):
+    """Gemini a refusé la requête pour un motif déterministe imputable à
+    NOTRE configuration — clé invalide (400 INVALID_ARGUMENT), accès refusé
+    (403), modèle inconnu (404) — et non à une panne amont (→ 500).
+
+    Distincte de DetectionError, qui rend 502 : un 502 enverrait l'exploitant
+    chercher la panne chez Gemini alors que le défaut est dans son .env.
+    Comme elle hérite de RuntimeError, sa clause `except` doit précéder la
+    clause générique dans les routes, sans quoi celle-ci l'ombrerait.
+    """
+
+
 class DelaiGlobalDepasse(RuntimeError):
     """L'échéance globale de la requête (boucle de réessai comprise) a
     expiré avant une réponse exploitable (→ 504).
@@ -225,9 +237,16 @@ class ProductDetector:
                         temperature=0.1, max_output_tokens=4096),
                 )
             except errors.APIError as e:
-                if getattr(e, "code", None) == 429:
+                code = getattr(e, "code", None)
+                if code == 429:
                     raise QuotaGeminiDepasse(
                         "Quota Gemini dépassé en amont"
+                    ) from e
+                if isinstance(code, int) and 400 <= code < 500:
+                    # Déterministe : la même requête échouera identiquement.
+                    raise ConfigurationGeminiRefusee(
+                        f"Gemini a refusé la requête ({code}) : "
+                        "vérifiez GEMINI_API_KEY et GEMINI_MODEL"
                     ) from e
                 derniere_erreur = e
                 logger.warning(
