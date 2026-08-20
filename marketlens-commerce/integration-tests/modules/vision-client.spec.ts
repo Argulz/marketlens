@@ -1,5 +1,7 @@
 import http from "http"
 import {
+  NOM_VISION_INDISPONIBLE,
+  NOM_VISION_REFUSE,
   VisionIndisponible,
   VisionRefuse,
   annoterImage,
@@ -19,7 +21,14 @@ function servir(gestionnaire): Promise<{ url: string; fermer: () => Promise<void
       const port = (serveur.address() as any).port
       resoudre({
         url: `http://127.0.0.1:${port}`,
-        fermer: () => new Promise((r) => serveur.close(() => r(undefined))),
+        fermer: () =>
+          new Promise((r) => {
+            // Une requête laissée sans réponse (test du dépassement de délai)
+            // garde sa socket ouverte : `close()` seul ne rendrait jamais
+            // la main et Jest ne sortirait pas.
+            serveur.closeAllConnections()
+            serveur.close(() => r(undefined))
+          }),
         recus,
       })
     })
@@ -34,6 +43,9 @@ describe("Client du service de vision", () => {
   beforeEach(() => {
     process.env.VISION_SERVICE_URL = "http://127.0.0.1:0"
     process.env.VISION_SERVICE_SECRET = "secret-de-test"
+    // Même raison : le délai de requête est lu depuis l'environnement à
+    // chaque appel, un test qui l'abaisse ne doit pas le laisser au suivant.
+    delete process.env.VISION_REQUEST_TIMEOUT_MS
   })
 
   it("transmet le secret partagé et rend les zones détectées", async () => {
@@ -89,5 +101,47 @@ describe("Client du service de vision", () => {
     } finally {
       await s.fermer()
     }
+  })
+
+  it("traduit un amont qui ne répond jamais en indisponibilité, jamais en refus", async () => {
+    // `fetch` n'impose AUCUN délai par défaut côté Node : sans `signal`, un
+    // service de vision figé au niveau TCP faisait pendre la requête du
+    // marchand indéfiniment. Le service Python porte une échéance globale de
+    // 45 s ; le client Medusa doit caler la sienne au-dessus, et un
+    // dépassement doit être une indisponibilité (l'amont n'a pas répondu),
+    // jamais un refus (qui accuserait notre requête).
+    const s = await servir((req) => {
+      // On draine le corps sans jamais répondre. Sans ce `resume()`, le corps
+      // multipart resterait non lu, la socket se remplirait et le client
+      // récolterait un ECONNRESET — on éprouverait alors le chemin
+      // « transport en erreur » au lieu du dépassement de délai visé.
+      req.resume()
+    })
+    try {
+      process.env.VISION_SERVICE_URL = s.url
+      process.env.VISION_REQUEST_TIMEOUT_MS = "300"
+
+      const debut = Date.now()
+      await expect(detecterProduits(JPEG, "etal.jpg")).rejects.toBeInstanceOf(
+        VisionIndisponible
+      )
+      // Le délai configuré a bien agi : la promesse n'a pas attendu la valeur
+      // par défaut (une minute), et n'a surtout pas pendu.
+      expect(Date.now() - debut).toBeLessThan(10_000)
+    } finally {
+      await s.fermer()
+    }
+  })
+
+  it("nomme ses erreurs, faute de quoi les journaux et la route ne lisent que « Error »", async () => {
+    // `class VisionRefuse extends Error {}` sans `this.name` laisse
+    // `Error.prototype.name` — les journaux affichent « Error », et surtout
+    // la route ne peut plus distinguer un refus d'une panne : le rejet d'un
+    // `.run()` de workflow n'est pas l'instance d'origine (l'orchestrateur la
+    // remplace par une copie en objet simple), donc `instanceof` est
+    // inutilisable et seul `.name` survit.
+    expect(new VisionRefuse("x").name).toBe(NOM_VISION_REFUSE)
+    expect(new VisionIndisponible("x").name).toBe(NOM_VISION_INDISPONIBLE)
+    expect(NOM_VISION_REFUSE).not.toBe(NOM_VISION_INDISPONIBLE)
   })
 })
