@@ -19,6 +19,14 @@ type ProduitLegacy = {
   price?: string
   colors?: string[]
   sizes?: string[]
+  // Rencontré dans l'archive (catalogue 0e61cd9284) sans jamais être
+  // consommé par publishCatalogueWorkflow, qui ne connaît que `colors` et
+  // `sizes`. On le type ici pour pouvoir le DÉTECTER et le SIGNALER — voir
+  // la section « pertes de représentation » plus bas — pas pour lui
+  // inventer une correspondance vers les options Medusa : cette
+  // correspondance est une vraie question de modélisation, hors du
+  // périmètre de cette tâche d'import.
+  options?: unknown
 }
 
 type MetadataLegacy = {
@@ -27,6 +35,7 @@ type MetadataLegacy = {
   merchant_name?: string
   merchant_phone?: string
   merchant_whatsapp?: string
+  created_at?: number
 }
 
 // L'archive n'est pas versionnée avec ce dépôt (elle vit hors du monorepo) ;
@@ -101,6 +110,154 @@ function demarrerServeurVisionFactice(etat: EtatVisionFactice, secret: string) {
   })
 }
 
+type CatalogueLegacy = { dossier: string; meta: MetadataLegacy }
+
+type GroupePhone = {
+  telephone: string
+  // Un groupe est « fabriqué » quand AUCUN catalogue du groupe ne porte de
+  // merchant_phone dans l'archive : le téléphone est alors une valeur
+  // synthétique (`inconnu-<dossier>`) que ce script invente pour donner
+  // au marchand une identité minimale exploitable — jamais une identité
+  // recopiée d'une autre source.
+  fabrique: boolean
+  dossiers: string[]
+  // nom / whatsapp -> dossiers qui portent CETTE valeur (uniquement les
+  // valeurs non vides). Sert à détecter les divergences intra-marchand :
+  // le même téléphone, mais des valeurs différentes selon le catalogue.
+  noms: Map<string, string[]>
+  whatsapps: Map<string, string[]>
+}
+
+/**
+ * Analyse l'archive SANS écrire quoi que ce soit : regroupe les 28
+ * catalogues par identité marchande (téléphone réel ou fabriqué) et
+ * détecte, pour chaque groupe, les valeurs de `merchant_name` /
+ * `merchant_whatsapp` qui divergent entre catalogues d'un même marchand.
+ * La valeur retenue est toujours celle du premier dossier du groupe dans
+ * l'ordre trié — c'est exactement celle que la boucle d'import plus bas
+ * utilisera pour créer le marchand (premier catalogue rencontré pour ce
+ * téléphone), donc ce qui est « rejeté » ici est réellement perdu par
+ * l'import, pas une approximation.
+ */
+function analyserIdentitesMarchandes(catalogues: CatalogueLegacy[]): Map<string, GroupePhone> {
+  const groupes = new Map<string, GroupePhone>()
+  for (const { dossier, meta } of catalogues) {
+    const fabrique = !meta.merchant_phone
+    const telephone = meta.merchant_phone || `inconnu-${dossier}`
+    if (!groupes.has(telephone)) {
+      groupes.set(telephone, { telephone, fabrique, dossiers: [], noms: new Map(), whatsapps: new Map() })
+    }
+    const g = groupes.get(telephone)!
+    g.dossiers.push(dossier)
+    if (meta.merchant_name) {
+      if (!g.noms.has(meta.merchant_name)) g.noms.set(meta.merchant_name, [])
+      g.noms.get(meta.merchant_name)!.push(dossier)
+    }
+    if (meta.merchant_whatsapp) {
+      if (!g.whatsapps.has(meta.merchant_whatsapp)) g.whatsapps.set(meta.merchant_whatsapp, [])
+      g.whatsapps.get(meta.merchant_whatsapp)!.push(dossier)
+    }
+  }
+  return groupes
+}
+
+/** Imprime, AVANT toute écriture, ce que l'import va fabriquer et ce qu'il
+ *  va perdre. Le brief le dit : c'est cette liste qui a de la valeur — elle
+ *  doit donc être visible dans la sortie du script lui-même, pas seulement
+ *  reconstituée après coup dans un rapport en prose. */
+function imprimerPertesDeRepresentation(catalogues: CatalogueLegacy[], groupes: Map<string, GroupePhone>) {
+  const groupesFabriques = [...groupes.values()].filter((g) => g.fabrique)
+  const catalseFabriques = groupesFabriques.reduce((s, g) => s + g.dossiers.length, 0)
+  const catalseFideles = catalogues.length - catalseFabriques
+
+  console.log(
+    `\n=== IDENTITÉ MARCHANDE (${catalogues.length} catalogues) ===\n` +
+      `${catalseFideles} catalogue(s) FIDÈLE(S) : rattachés à un merchant_phone réel de l'archive.\n` +
+      `${catalseFabriques} catalogue(s) à IDENTITÉ FABRIQUÉE : ni merchant_phone ni merchant_name ` +
+      `dans l'archive — un marchand synthétique (téléphone « inconnu-<dossier> ») a été créé pour ` +
+      `chacun, à ne PAS confondre avec un import fidèle.`
+  )
+  for (const g of groupesFabriques) {
+    console.log(`   FABRIQUÉ : ${g.dossiers[0]} -> téléphone synthétique « ${g.telephone} »`)
+  }
+
+  console.log(`\n=== PERTES DE REPRÉSENTATION DÉTECTÉES ===`)
+  console.log(
+    `Le nouveau modèle attache le nom et le whatsapp au MARCHAND, une fois pour toutes ; ` +
+      `l'ancien les attachait au CATALOGUE, à chaque capture. Un marchand qui a changé de nom ou ` +
+      `de numéro whatsapp entre deux captures ne peut plus être représenté qu'avec UNE valeur.`
+  )
+
+  let pertesNom = 0
+  for (const g of groupes.values()) {
+    if (g.noms.size <= 1) continue
+    pertesNom++
+    const dossierRetenu = g.dossiers[0]
+    const nomRetenu = catalogues.find((c) => c.dossier === dossierRetenu)!.meta.merchant_name!
+    console.log(`   PERTE merchant_name — téléphone ${g.telephone} :`)
+    console.log(`     retenu  : "${nomRetenu}" (catalogue ${dossierRetenu}, premier dans l'ordre d'import)`)
+    for (const [nom, dossiers] of g.noms) {
+      if (nom === nomRetenu) continue
+      console.log(`     jeté    : "${nom}" -> ${dossiers.length} catalogue(s) (${dossiers.join(", ")})`)
+    }
+  }
+  if (pertesNom === 0) console.log(`   merchant_name : aucune divergence détectée.`)
+
+  let pertesWhatsapp = 0
+  for (const g of groupes.values()) {
+    if (g.whatsapps.size <= 1) continue
+    pertesWhatsapp++
+    const dossierRetenu = g.dossiers[0]
+    const whatsappRetenu = catalogues.find((c) => c.dossier === dossierRetenu)!.meta.merchant_whatsapp!
+    console.log(`   PERTE merchant_whatsapp — téléphone ${g.telephone} :`)
+    console.log(`     retenu  : "${whatsappRetenu}" (catalogue ${dossierRetenu}, premier dans l'ordre d'import)`)
+    for (const [w, dossiers] of g.whatsapps) {
+      if (w === whatsappRetenu) continue
+      console.log(`     jeté    : "${w}" -> ${dossiers.length} catalogue(s) (${dossiers.join(", ")})`)
+    }
+  }
+  // Un catalogue du groupe sans AUCUN whatsapp, alors que le marchand en a
+  // un ailleurs, n'est pas une divergence de valeur mais mérite d'être noté :
+  // rien n'est perdu pour LUI (il n'en portait pas), mais ce n'est pas
+  // silencieux non plus.
+  for (const g of groupes.values()) {
+    if (g.whatsapps.size === 0) continue
+    const sansWhatsapp = g.dossiers.filter((d) => !catalogues.find((c) => c.dossier === d)!.meta.merchant_whatsapp)
+    if (sansWhatsapp.length) {
+      console.log(`   NOTE merchant_whatsapp — téléphone ${g.telephone} : ${sansWhatsapp.join(", ")} n'en portait aucun (rien perdu pour ceux-ci).`)
+    }
+  }
+  if (pertesWhatsapp === 0) console.log(`   merchant_whatsapp : aucune divergence de valeur détectée.`)
+
+  const produitsAvecOptions: { dossier: string; label: string; options: unknown }[] = []
+  for (const { dossier, meta } of catalogues) {
+    for (const p of meta.products) {
+      const options = p.options
+      // On compte tout produit qui porte la clé `options`, même vide : la
+      // clé elle-même prouve que l'ancien modèle avait un concept que le
+      // nouveau (colors/sizes) ne reprend pas tel quel.
+      if (options !== undefined && (!p.colors || p.colors.length === 0) && (!p.sizes || p.sizes.length === 0)) {
+        produitsAvecOptions.push({ dossier, label: p.label, options })
+      }
+    }
+  }
+  console.log(
+    `   PERTE products[].options : ${produitsAvecOptions.length} produit(s) portent ce champ (absent de ` +
+      `publishCatalogueWorkflow, qui ne connaît que colors/sizes), sans ni colors ni sizes en repli :`
+  )
+  for (const p of produitsAvecOptions) {
+    console.log(`     ${p.dossier} : "${p.label}" options=${JSON.stringify(p.options)}`)
+  }
+
+  console.log(
+    `   PERTE metadata.created_at : les ${catalogues.length} catalogues portent une date de capture ` +
+      `d'origine (horodatage Unix) que ce script ignore — le nouveau catalogue est horodaté à ` +
+      `l'import, pas à la capture d'étal.`
+  )
+
+  return { catalseFideles, catalseFabriques, pertesNom, pertesWhatsapp, produitsAvecOptions }
+}
+
 export default async function seedLegacy({ container, args }: ExecArgs) {
   const archive = args[0]
   if (!archive) {
@@ -131,6 +288,43 @@ export default async function seedLegacy({ container, args }: ExecArgs) {
 
   console.log(`Archive vérifiée : ${dossiers.length} catalogues, dont le témoin ${CATALOGUE_TEMOIN}.`)
 
+  const catalogues: CatalogueLegacy[] = dossiers.map((dossier) => ({
+    dossier,
+    meta: JSON.parse(fs.readFileSync(path.join(racine, dossier, "metadata.json"), "utf-8")),
+  }))
+  const groupes = analyserIdentitesMarchandes(catalogues)
+  imprimerPertesDeRepresentation(catalogues, groupes)
+
+  // Ce script réalise un import À BLANC, pas une synchronisation : il ne
+  // sait ni fusionner ni mettre à jour un import précédent, et le handle
+  // marchand qu'il calcule est déterministe (même téléphone -> même
+  // handle à chaque exécution). Le relancer sur une base déjà importée
+  // ferait donc échouer CHAQUE catalogue à la création du marchand — un
+  // échec de plomberie (handle déjà pris), pas un trou de représentation —
+  // et ce script les distinguerait mal s'il les laissait simplement
+  // remonter dans la liste des échecs. On refuse donc de démarrer : plus
+  // sûr qu'une reprise partielle, qui dupliquerait silencieusement les
+  // catalogues et produits des marchands déjà importés.
+  const query = container.resolve(ContainerRegistrationKeys.QUERY)
+  const telephonesArchive = [...groupes.keys()]
+  const { data: marchandsExistants } = await query.graph({
+    entity: "merchant",
+    fields: ["id", "phone", "handle"],
+    filters: { phone: telephonesArchive },
+  })
+  if (marchandsExistants.length > 0) {
+    const detail = (marchandsExistants as any[])
+      .map((m) => `${m.phone} -> marchand ${m.id} (handle « ${m.handle} »)`)
+      .join(" ; ")
+    throw new Error(
+      `BLOCKED : cette archive semble déjà importée. ${marchandsExistants.length} marchand(s) existent ` +
+        `déjà avec un téléphone présent dans l'archive : ${detail}. Ce n'est pas un trou de ` +
+        `représentation, c'est un ré-import détecté avant toute écriture — nettoyez ces marchands ` +
+        `(et leurs catalogues/produits) avant de relancer, ou étendez ce script si un vrai besoin de ` +
+        `ré-import récurrent apparaît. Rien n'a été importé.`
+    )
+  }
+
   await assurerRegionXof(container)
 
   const secret = "seed-legacy-secret-local"
@@ -147,15 +341,14 @@ export default async function seedLegacy({ container, args }: ExecArgs) {
   const produitsParMarchand = new Map<string, string[]>()
   const echecs: { catalogue: string; raison: string }[] = []
   let importes = 0
+  let importesFideles = 0
+  let importesFabriques = 0
 
   try {
-    for (const dossier of dossiers) {
-      const chemin = path.join(racine, dossier)
+    for (const { dossier, meta } of catalogues) {
       try {
-        const meta: MetadataLegacy = JSON.parse(
-          fs.readFileSync(path.join(chemin, "metadata.json"), "utf-8")
-        )
         const telephone = meta.merchant_phone || `inconnu-${dossier}`
+        const fabrique = groupes.get(telephone)!.fabrique
 
         if (!marchandsParTelephone.has(telephone)) {
           const { result } = await createMerchantWorkflow(container).run({
@@ -170,7 +363,7 @@ export default async function seedLegacy({ container, args }: ExecArgs) {
         }
         const marchand = marchandsParTelephone.get(telephone)
 
-        const octets = fs.readFileSync(path.join(chemin, "original.jpg"))
+        const octets = fs.readFileSync(path.join(racine, dossier, "original.jpg"))
 
         // Le serveur factice répondra avec CES produits au prochain /detect.
         etatVision.produits = meta.products
@@ -234,7 +427,12 @@ export default async function seedLegacy({ container, args }: ExecArgs) {
         produitsParMarchand.set(marchand.merchant_id, [...existants, ...publication.product_ids])
 
         importes++
-        console.log(`  OK  ${dossier} (${items.length} article(s) publié(s), marchand « ${marchand.merchant_id} »)`)
+        if (fabrique) importesFabriques++
+        else importesFideles++
+        const etiquette = fabrique ? "IDENTITÉ FABRIQUÉE" : "fidèle"
+        console.log(
+          `  OK  ${dossier} (${items.length} article(s) publié(s), marchand « ${marchand.merchant_id} », ${etiquette})`
+        )
       } catch (e) {
         // Les rejets de `.run()` d'un workflow ne sont pas des `Error` —
         // l'orchestrateur les sérialise en objet simple. `instanceof` serait
@@ -272,7 +470,6 @@ export default async function seedLegacy({ container, args }: ExecArgs) {
     const idsM1 = produitsParMarchand.get(m1.merchant_id)!
     const idsM2 = produitsParMarchand.get(m2.merchant_id)!
 
-    const query = container.resolve(ContainerRegistrationKeys.QUERY)
     const { data } = await query.graph({
       entity: "product",
       fields: ["id", "sales_channels.id"],
@@ -310,7 +507,10 @@ export default async function seedLegacy({ container, args }: ExecArgs) {
     console.log("\nIsolation non vérifiée : moins de deux marchands avec au moins un produit publié.")
   }
 
-  console.log(`\n${importes} catalogues importés, ${marchandsParTelephone.size} marchands créés`)
+  console.log(
+    `\n${importes} catalogues importés (${importesFideles} fidèle(s) à une identité réelle de l'archive, ` +
+      `${importesFabriques} à identité marchande FABRIQUÉE), ${marchandsParTelephone.size} marchands créés`
+  )
   if (echecs.length) {
     console.log(`\n${echecs.length} ÉCHEC(S) — chacun révèle un champ que le nouveau modèle n'accueille pas :`)
     for (const e of echecs) console.log(`  ${e.catalogue} : ${e.raison}`)
