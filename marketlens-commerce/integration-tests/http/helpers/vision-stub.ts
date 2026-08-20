@@ -7,6 +7,7 @@ export async function servirVisionFactice(reponses: {
   detect?: unknown
   annotate?: Buffer
   statutDetect?: number
+  statutAnnotate?: number
 }) {
   const serveur = http.createServer((req, res) => {
     if (req.url?.startsWith("/detect")) {
@@ -16,6 +17,10 @@ export async function servirVisionFactice(reponses: {
       }
       res.writeHead(200, { "content-type": "application/json" })
       return res.end(JSON.stringify(reponses.detect ?? { products: [], count: 0 }))
+    }
+    if (reponses.statutAnnotate && reponses.statutAnnotate >= 400) {
+      res.writeHead(reponses.statutAnnotate)
+      return res.end("{}")
     }
     res.writeHead(200, { "content-type": "image/jpeg" })
     res.end(reponses.annotate ?? Buffer.from([0xff, 0xd8, 0xff, 0xdb]))
