@@ -1,4 +1,66 @@
-import { defineMiddlewares, authenticate } from "@medusajs/framework/http"
+import {
+  defineMiddlewares,
+  authenticate,
+  MedusaNextFunction,
+  MedusaRequest,
+  MedusaResponse,
+} from "@medusajs/framework/http"
+import multer from "multer"
+import { TAILLE_MAX_IMAGE_MO, TAILLE_MAX_IMAGE_OCTETS } from "../lib/limites-image"
+
+// `@medusajs/framework/http` n'exporte aucun `upload` prêt à l'emploi dans
+// cette version du SDK (vérifié : absent de son `index.js`) — seul le code
+// interne de `@medusajs/medusa` (route `/admin/uploads`) construit le sien
+// ainsi, en mémoire. On reproduit exactement le même motif plutôt que
+// d'écrire sur disque : les fichiers doivent transiter jusqu'à
+// `uploadFilesWorkflow`, qui attend un contenu en mémoire, pas un chemin.
+//
+// `limits` n'est PAS décoratif ici. Sans plafond, toute photo était
+// bufferisée intégralement en mémoire puis convertie en chaîne "binary" par
+// la route — deux à trois copies du fichier par requête concurrente, sur un
+// chemin ouvert à tout marchand authentifié. `files: 1` ferme la variante par
+// le nombre : `upload.array("image")` accepterait sinon autant de fichiers
+// que l'appelant en envoie, alors que la route n'en lit qu'un
+// (`req.files?.[0]`).
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: TAILLE_MAX_IMAGE_OCTETS, files: 1 },
+})
+
+/**
+ * `upload.array` signale un dépassement de limite par une `MulterError`
+ * passée à `next()`. Laissée filer, elle atteint le gestionnaire d'erreurs du
+ * framework qui rend un 500 portant son message ANGLAIS (« File too large »)
+ * — une panne serveur apparente pour ce qui est une entrée refusable, et un
+ * message que le marchand ne peut pas lire. On la traduit donc ici, au plus
+ * près de l'endroit qui la produit.
+ */
+const televerserImage = (
+  req: MedusaRequest,
+  res: MedusaResponse,
+  next: MedusaNextFunction
+) => {
+  upload.array("image")(req as any, res as any, (erreur: any) => {
+    if (!erreur) return next()
+
+    if (erreur.code === "LIMIT_FILE_SIZE") {
+      return res.status(400).json({
+        message: `L'image dépasse la taille maximale autorisée (${TAILLE_MAX_IMAGE_MO} Mo). Réduisez sa résolution ou sa qualité, puis réessayez.`,
+      })
+    }
+    if (erreur.code === "LIMIT_FILE_COUNT" || erreur.code === "LIMIT_UNEXPECTED_FILE") {
+      return res.status(400).json({
+        message: "Envoyez une seule image par catalogue, dans le champ « image ».",
+      })
+    }
+    // Toute autre défaillance de l'analyse multipart (corps tronqué,
+    // frontière invalide) reste une requête mal formée, pas une panne
+    // serveur — mais son détail technique ne part pas au client.
+    return res.status(400).json({
+      message: "L'envoi de l'image a échoué : la requête est mal formée.",
+    })
+  })
+}
 
 export default defineMiddlewares({
   routes: [
@@ -23,6 +85,14 @@ export default defineMiddlewares({
       middlewares: [
         authenticate("merchant", ["bearer"], { allowUnregistered: true }),
       ],
+    },
+    {
+      // La règle d'inscription ci-dessus ne couvre que POST, et le matcher
+      // général exclut /merchant/register pour tous les verbes. Sans cette
+      // règle, tout autre verbe sur ce chemin serait non authentifié.
+      matcher: "/merchant/register",
+      methods: ["GET", "PUT", "PATCH", "DELETE"],
+      middlewares: [authenticate("merchant", ["session", "bearer"])],
     },
     {
       // Tout le reste exige une identité déjà rattachée. Le matcher exclut
@@ -57,6 +127,15 @@ export default defineMiddlewares({
       // route sous /merchant/*.
       matcher: /^\/merchant(?:\/(?!register\/?$).*)?$/i,
       middlewares: [authenticate("merchant", ["session", "bearer"])],
+    },
+    {
+      // Règle à méthode explicite : le trieur de routes l'exécute après la
+      // règle générale ci-dessus (sans `methods`), qui rejoint donc
+      // toujours l'authentification avant que multer ne parse le corps
+      // multipart — un envoi non authentifié n'atteint jamais cette étape.
+      matcher: "/merchant/catalogues",
+      methods: ["POST"],
+      middlewares: [televerserImage],
     },
   ],
 })

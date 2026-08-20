@@ -2,6 +2,7 @@ import { medusaIntegrationTestRunner } from "@medusajs/test-utils"
 import { Modules } from "@medusajs/framework/utils"
 import createMerchantWorkflow from "../../src/workflows/create-merchant"
 import { MERCHANT_MODULE } from "../../src/modules/merchant"
+import { LONGUEUR_MAX_HANDLE } from "../../src/modules/merchant/handle"
 
 jest.setTimeout(60 * 1000)
 
@@ -103,6 +104,48 @@ medusaIntegrationTestRunner({
 
         expect(salesChannelsApres).toHaveLength(salesChannelsAvant.length)
         expect(stockLocationsApres).toHaveLength(stockLocationsAvant.length)
+      })
+
+      it("normalise le handle même appelé directement par le workflow", async () => {
+        // La normalisation vivait dans la route d'inscription. Tout appel direct
+        // — script d'opérateur, autre workflow — persistait un handle brut, et
+        // deux casses différentes se disputeraient la même URL publique /c/<handle>.
+        const { result } = await createMerchantWorkflow(getContainer()).run({
+          input: { name: "Étal Direct", handle: "  ETAL-Direct  ", phone: "22990007001" },
+        })
+
+        const service = getContainer().resolve(MERCHANT_MODULE)
+        const marchand = await service.retrieveMerchant(result.merchant_id)
+        expect(marchand.handle).toBe("etal-direct")
+      })
+
+      it("refuse un handle trop long même appelé directement par le workflow", async () => {
+        // La route d'inscription borne `handle` à LONGUEUR_MAX_HANDLE
+        // caractères (réponse 400). La colonne `handle` en base n'a elle-même
+        // aucune contrainte de longueur (model.text()) : rien ne rattrape un
+        // appel direct au workflow qui contournerait la route. Ce handle est
+        // par ailleurs valide (lettres minuscules uniquement) : seule la
+        // longueur doit faire échouer la création.
+        const container = getContainer()
+        const handleTropLong = "a".repeat(LONGUEUR_MAX_HANDLE + 1)
+
+        // Comme pour les autres rejets de `.run()` (voir note plus haut dans
+        // ce fichier), l'orchestrateur ne rejette pas avec une instance
+        // d'`Error` : `rejects.toThrow()` ne le reconnaîtrait pas. On utilise
+        // donc un `try/catch` explicite.
+        let aEchoue = false
+        try {
+          await createMerchantWorkflow(container).run({
+            input: { name: "Handle Trop Long", handle: handleTropLong, phone: "22990007002" },
+          })
+        } catch (e) {
+          aEchoue = true
+        }
+        expect(aEchoue).toBe(true)
+
+        const merchantService = container.resolve(MERCHANT_MODULE)
+        const marchands = await merchantService.listMerchants({ handle: handleTropLong })
+        expect(marchands).toHaveLength(0)
       })
     })
   },

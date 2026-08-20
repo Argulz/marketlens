@@ -1,6 +1,7 @@
 import { createStep, StepResponse } from "@medusajs/framework/workflows-sdk"
 import { MERCHANT_MODULE } from "../../modules/merchant"
 import MerchantModuleService from "../../modules/merchant/service"
+import { MOTIF_HANDLE, LONGUEUR_MAX_HANDLE } from "../../modules/merchant/handle"
 
 export type CreateMerchantRecordInput = {
   name: string
@@ -9,13 +10,41 @@ export type CreateMerchantRecordInput = {
   whatsapp_phone?: string
 }
 
+// `handle` est destiné à devenir un segment d'URL publique (`/c/<handle>`).
+// La route d'inscription (src/api/merchant/register/route.ts) normalise déjà
+// ce champ avant d'appeler le workflow, mais cette validation ne protège que
+// cette route : tout appel direct au workflow — script d'opérateur, autre
+// workflow, script d'import du corpus — persisterait un handle brut. L'index
+// unique de Postgres est sensible à la casse, donc `etal-fatou` et
+// `ETAL-FATOU` se disputeraient la même URL de catalogue sans cette
+// normalisation posée ici, au plus près de la persistance. Le motif et la
+// borne de longueur viennent de ../../modules/merchant/handle.ts, partagée
+// avec la route : la borne y est vérifiée sur le handle une fois rogné, donc
+// jamais plus permissive que le contrôle (pré-rognage) de la route.
+function normaliserHandle(brut: string): string {
+  const handle = brut.trim().toLowerCase()
+  if (handle.length > LONGUEUR_MAX_HANDLE) {
+    throw new Error(
+      `Le handle « ${brut} » ne doit pas dépasser ${LONGUEUR_MAX_HANDLE} ` +
+      `caractères`
+    )
+  }
+  if (!MOTIF_HANDLE.test(handle)) {
+    throw new Error(
+      `Le handle « ${brut} » doit être composé de lettres minuscules, de ` +
+      `chiffres et de tirets simples`
+    )
+  }
+  return handle
+}
+
 export const createMerchantRecordStep = createStep(
   "create-merchant-record",
   async (input: CreateMerchantRecordInput, { container }) => {
     const service = container.resolve<MerchantModuleService>(MERCHANT_MODULE)
     const marchand = await service.createMerchants({
       name: input.name,
-      handle: input.handle,
+      handle: normaliserHandle(input.handle),
       phone: input.phone,
       whatsapp_phone: input.whatsapp_phone ?? null,
       // Le modèle DML pose `pending` par défaut, mais rien dans le socle ne

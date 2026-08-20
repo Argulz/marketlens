@@ -15,11 +15,12 @@
   "scripts": {
     "build": "medusa build",
     "seed": "medusa exec ./src/scripts/seed.ts",
+    "seed:legacy": "medusa exec ./src/scripts/seed-legacy.ts",
     "start": "medusa start",
     "dev": "medusa develop",
-    "test:integration:http": "npm run typecheck && TEST_TYPE=integration:http NODE_OPTIONS=--experimental-vm-modules jest --silent=false --runInBand --forceExit",
-    "test:integration:modules": "npm run typecheck && TEST_TYPE=integration:modules NODE_OPTIONS=--experimental-vm-modules jest --silent=false --runInBand --forceExit",
-    "test:unit": "npm run typecheck && TEST_TYPE=unit NODE_OPTIONS=--experimental-vm-modules jest --silent --runInBand --forceExit",
+    "test:integration:http": "npm run typecheck && TEST_TYPE=integration:http NODE_OPTIONS=--experimental-vm-modules jest --silent=false --runInBand",
+    "test:integration:modules": "npm run typecheck && TEST_TYPE=integration:modules NODE_OPTIONS=--experimental-vm-modules jest --silent=false --runInBand",
+    "test:unit": "npm run typecheck && TEST_TYPE=unit NODE_OPTIONS=--experimental-vm-modules jest --silent --runInBand",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
@@ -27,6 +28,7 @@
     "@medusajs/cli": "2.18.0",
     "@medusajs/framework": "2.18.0",
     "@medusajs/medusa": "2.18.0",
+    "multer": "2.2.0",
     "zod": "^4.2.0"
   },
   "devDependencies": {

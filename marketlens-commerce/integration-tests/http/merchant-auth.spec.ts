@@ -86,6 +86,15 @@ medusaIntegrationTestRunner({
         expect(reponse.status).toBe(401)
       })
 
+      it("refuse un GET sur /merchant/register", async () => {
+        // La règle d'inscription est restreinte à POST, et le matcher général
+        // exclut ce chemin pour tous les verbes : sans seconde règle, un GET
+        // n'est protégé par rien. Un 404 signalerait que le middleware n'est
+        // jamais atteint — donc qu'une future route y serait ouverte.
+        const reponse = await api.get("/merchant/register").catch((e) => e.response)
+        expect(reponse.status).toBe(401)
+      })
+
       it("protège les sous-chemins de /merchant/register", async () => {
         // Second trou de l'ancien matcher : la négation excluait tout
         // `/merchant/register/**`, et la règle d'inscription ne le rattrapait

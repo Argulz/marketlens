@@ -4,6 +4,8 @@ import {
   createCollectionsWorkflow,
   createProductCategoriesWorkflow,
 } from "@medusajs/medusa/core-flows"
+import { MERCHANT_MODULE } from "../../src/modules/merchant"
+import { servirVisionFactice } from "./helpers/vision-stub"
 
 jest.setTimeout(120 * 1000)
 
@@ -99,6 +101,74 @@ async function titresVus(api, publishableKey: string): Promise<string[]> {
     headers: { "x-publishable-api-key": publishableKey },
   })
   return reponse.data.products.map((p) => p.title)
+}
+
+// --- Helpers du volet « statut marchand » ---------------------------------
+//
+// La spec pose que `status` n'est pas décoratif : toute route marchand
+// refuse un marchand non `active`, et une vitrine publiée par un marchand
+// suspendu cesse d'être servie. Ces helpers montent le décor minimal pour
+// le vérifier de bout en bout, par les vraies routes HTTP.
+
+const ZONE_TOMATES = {
+  label: "Tomates", x: 250, y: 400, width: 200, height: 150, category: "fruits_legumes",
+}
+
+function corpsPhoto(titre: string): FormData {
+  const form = new FormData()
+  form.append(
+    "image",
+    new Blob([Buffer.from([0xff, 0xd8, 0xff, 0xe0])], { type: "image/jpeg" }),
+    "etal.jpg"
+  )
+  form.append("title", titre)
+  return form
+}
+
+/** Crée un brouillon par la vraie route multipart, avec son propre serveur
+ *  de vision factice fermé dans un `finally`. */
+async function analyserPhoto(api, jeton: string, titre: string) {
+  const vision = await servirVisionFactice({
+    detect: { products: [ZONE_TOMATES], count: 1 },
+  })
+  try {
+    const reponse = await api.post("/merchant/catalogues", corpsPhoto(titre), {
+      headers: { authorization: `Bearer ${jeton}` },
+    })
+    return {
+      id: reponse.data.catalogue.id,
+      handle: reponse.data.catalogue.handle,
+      zones: reponse.data.zones,
+    }
+  } finally {
+    await vision.fermer()
+  }
+}
+
+function itemsPour(catalogue: { zones: any[] }) {
+  return [
+    {
+      zone_id: catalogue.zones[0].id,
+      label: "Tomates fraîches",
+      price: "500",
+      quantity: 2,
+      colors: [],
+      sizes: [],
+    },
+  ]
+}
+
+async function publierCatalogue(api, jeton: string, catalogue: { id: string; zones: any[] }) {
+  const vision = await servirVisionFactice({ detect: { products: [], count: 0 } })
+  try {
+    return await api.post(
+      `/merchant/catalogues/${catalogue.id}/publish`,
+      { items: itemsPour(catalogue) },
+      { headers: { authorization: `Bearer ${jeton}` } }
+    )
+  } finally {
+    await vision.fermer()
+  }
 }
 
 medusaIntegrationTestRunner({
@@ -211,6 +281,96 @@ medusaIntegrationTestRunner({
         expect(
           categoriesVuesParSalif.data.product_categories.map((c) => c.name)
         ).toContain("Catégorie privée de Zeinab")
+      })
+
+      it("un marchand suspendu perd ses routes marchand, et sa vitrine cesse d'être servie", async () => {
+        // `status` n'était lu que par GET /merchant/me : un marchand suspendu
+        // pouvait encore téléverser des photos, créer de vrais produits dans
+        // son canal, poser du stock, et sa vitrine publiée continuait d'être
+        // servie. La suspension n'avait donc aucun effet observable là où
+        // elle compte.
+        const awa = await inscrireMarchand(api, "awa@marketlens.test", "etal-awa", "22990000051")
+        const enTete = { authorization: `Bearer ${awa.jeton}` }
+
+        // Deux catalogues créés TANT QUE le marchand est actif : l'un publié
+        // (pour éprouver la vitrine), l'autre laissé en brouillon. Sans ce
+        // second brouillon, un 403 sur la publication serait indiscernable du
+        // 409 « déjà publié » que la route rend de toute façon.
+        const publie = await analyserPhoto(api, awa.jeton, "Étal publié")
+        const brouillon = await analyserPhoto(api, awa.jeton, "Étal brouillon")
+
+        const publication = await publierCatalogue(api, awa.jeton, publie)
+        expect(publication.status).toBe(200)
+
+        const vitrineAvant = await api.get(`/store/catalogues/${publie.handle}`, {
+          headers: { "x-publishable-api-key": awa.publishableKey },
+        })
+        expect(vitrineAvant.status).toBe(200)
+
+        // --- La suspension entre en vigueur ---
+        const merchantService: any = getContainer().resolve(MERCHANT_MODULE)
+        await merchantService.updateMerchants({ id: awa.merchantId, status: "suspended" })
+
+        const MESSAGE_INACTIF = "Compte marchand inactif (statut : suspended)"
+
+        const liste = await api
+          .get("/merchant/catalogues", { headers: enTete })
+          .catch((e) => e.response)
+        expect(liste.status).toBe(403)
+        expect(liste.data.message).toBe(MESSAGE_INACTIF)
+
+        // Aucun serveur de vision factice n'est ouvert ici : le refus doit
+        // tomber AVANT tout appel au service de vision. S'il tombait après,
+        // ce n'est pas un 403 qu'on lirait.
+        const envoi = await api
+          .post("/merchant/catalogues", corpsPhoto("Étal suspendu"), { headers: enTete })
+          .catch((e) => e.response)
+        expect(envoi.status).toBe(403)
+        expect(envoi.data.message).toBe(MESSAGE_INACTIF)
+
+        const tentativePublication = await api
+          .post(
+            `/merchant/catalogues/${brouillon.id}/publish`,
+            { items: itemsPour(brouillon) },
+            { headers: enTete }
+          )
+          .catch((e) => e.response)
+        expect(tentativePublication.status).toBe(403)
+        expect(tentativePublication.data.message).toBe(MESSAGE_INACTIF)
+
+        // La vitrine rend 404 et non 403 : elle ne révèle ni l'existence du
+        // catalogue ni la raison du refus. Le message est exactement celui
+        // d'un catalogue inexistant.
+        const vitrineApres = await api
+          .get(`/store/catalogues/${publie.handle}`, {
+            headers: { "x-publishable-api-key": awa.publishableKey },
+          })
+          .catch((e) => e.response)
+        expect(vitrineApres.status).toBe(404)
+        expect(vitrineApres.data.message).toBe("Catalogue introuvable")
+      })
+
+      it("une identité dont le marchand a été supprimé reçoit 401, jamais une liste vide", async () => {
+        // Un actor_id orphelin obtenait `200 []` sur la liste — indiscernable
+        // d'un marchand actif sans catalogue — et le POST aurait créé un
+        // catalogue rattaché à un marchand inexistant.
+        const modou = await inscrireMarchand(api, "modou@marketlens.test", "etal-modou", "22990000052")
+        const enTete = { authorization: `Bearer ${modou.jeton}` }
+
+        const merchantService: any = getContainer().resolve(MERCHANT_MODULE)
+        await merchantService.deleteMerchants(modou.merchantId)
+
+        const liste = await api
+          .get("/merchant/catalogues", { headers: enTete })
+          .catch((e) => e.response)
+        expect(liste.status).toBe(401)
+        expect(liste.data.message).toBe("Identité non rattachée à un marchand")
+
+        const envoi = await api
+          .post("/merchant/catalogues", corpsPhoto("Étal fantôme"), { headers: enTete })
+          .catch((e) => e.response)
+        expect(envoi.status).toBe(401)
+        expect(envoi.data.message).toBe("Identité non rattachée à un marchand")
       })
     })
   },
