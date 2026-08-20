@@ -338,6 +338,30 @@ medusaIntegrationTestRunner({
         expect(reponse.data.message).not.toMatch(/File too large/i)
       })
 
+      it("refuse un envoi de plusieurs images par un message français, sans faire travailler la vision", async () => {
+        // `limits.files: 1` ferme la variante par le NOMBRE : sans plafond,
+        // `upload.array("image")` bufferisait autant de fichiers que
+        // l'appelant en envoyait, alors que la route n'en lit qu'un
+        // (`req.files?.[0]`) — le reste était copié en mémoire pour rien.
+        const marchand = await inscrire(api, "etal-cat-multi", "22990009010")
+
+        const form = corpsPhoto("Étal à deux images")
+        form.append(
+          "image",
+          new Blob([Buffer.from([0xff, 0xd8, 0xff, 0xe1])], { type: "image/jpeg" }),
+          "etal-bis.jpg"
+        )
+
+        const reponse = await api
+          .post("/merchant/catalogues", form, {
+            headers: { authorization: `Bearer ${marchand.jeton}` },
+          })
+          .catch((e: any) => e.response)
+
+        expect(reponse.status).toBe(400)
+        expect(reponse.data.message).toContain("une seule image")
+      })
+
       it("traduit un refus du service de vision en 400 français actionnable, sans exposer le détail technique", async () => {
         // Le service de vision refuse en 413 au-delà de sa propre limite, et
         // en 400 une image illisible. Sans try/catch dans la route, le
