@@ -138,6 +138,29 @@ Le `metadata.json` actuel porte `price`, `colors` et `sizes` ; tout cela migre v
 
 Cette séparation est ce qui rend le lot 4 possible : quand le stock changera, la vitrine le reflétera sans qu'on retouche le catalogue visuel.
 
+> **Correctif au principe ci-dessus, apporté après la revue du lot 3.** La séparation
+> est réelle pour les **variantes** et le **stock**. Elle est **fausse pour le prix**,
+> et le principe tel qu'énoncé était donc inexact sur un de ses trois termes.
+>
+> `annotated_image_url` est une image dans laquelle le service de vision **grave les
+> prix** : l'étape d'annotation reçoit un `price` par produit. Le catalogue visuel
+> porte donc bien de l'information de prix — sous forme de pixels, dans un champ qui
+> lui appartient. Conséquence concrète : toute modification de prix dans Medusa
+> désynchronise silencieusement l'image que l'acheteur voit de la vérité du système,
+> et rien dans le code ne détecte ni ne signale cette dérive. Aucun chemin de
+> ré-annotation n'existe, l'étape d'annotation n'étant appelable que depuis la
+> publication, elle-même verrouillée après la première fois.
+>
+> Ce n'est pas un défaut d'implémentation — le lot 3 a suivi ce document. C'est un
+> défaut de ce document, qui énonçait une séparation à trois termes alors que son
+> propre artefact central en re-capture un.
+>
+> **À trancher avant le lot suivant**, qui offrira au marchand un écran d'édition des
+> prix : soit l'édition post-publication déclenche une ré-annotation (et il faut donc
+> conserver la clé du fichier source), soit le prix sort de l'image et passe en
+> surimpression HTML côté vitrine. La seconde voie est la solution architecturalement
+> propre : c'est la seule qui rendrait ce principe de conception réellement vrai.
+
 ### Traitement des variantes
 
 Les couleurs et tailles saisies par le marchand deviennent des `ProductOption` (« Couleur », « Taille ») et leur produit cartésien des `ProductVariant`, chacune avec son prix et son niveau de stock.
