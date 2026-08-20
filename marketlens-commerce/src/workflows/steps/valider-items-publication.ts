@@ -46,6 +46,20 @@ export const validerItemsPublicationStep = createStep(
       )
     }
 
+    // Une zone porte AU PLUS un produit : `defineLink(catalogueZone,
+    // product)` est un lien un-à-un. Deux articles sur la même zone
+    // produisaient, selon les libellés, deux handles produit identiques
+    // (violation de l'index unique global `IDX_product_handle_unique`) ou
+    // deux liens sur la même zone (« Cannot create multiple links between
+    // 'visual_catalog' and 'product' ») — dans les deux cas une violation en
+    // anglais, levée APRÈS la création des produits, du stock et des liens.
+    const idsUniques = new Set(input.items.map((i) => i.zone_id))
+    if (idsUniques.size !== input.items.length) {
+      throw new ErreurValidationPublication(
+        "Deux articles ne peuvent pas désigner la même zone : une zone ne porte qu'un seul produit."
+      )
+    }
+
     const idsZones = new Set(input.zones.map((z) => z.id))
 
     for (const item of input.items) {

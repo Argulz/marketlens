@@ -509,6 +509,34 @@ medusaIntegrationTestRunner({
         const cat = await service.retrieveVisualCatalogue(brouillon.catalogue_id)
         expect(cat.status).toBe("draft")
       })
+
+      it("refuse deux articles sur la même zone, avant toute écriture", async () => {
+        // La validation vérifiait que le `zone_id` est CONNU, jamais qu'il est
+        // UNIQUE dans la requête. Deux articles sur la même zone produisaient,
+        // selon les libellés, soit deux handles produit identiques (violation
+        // de l'index unique global `IDX_product_handle_unique`), soit deux
+        // liens sur la même `catalogue_zone` alors que
+        // `defineLink(catalogueZone, product)` est un lien un-à-un. Dans les
+        // deux cas : violation Postgres en ANGLAIS, et APRÈS création des
+        // produits, du stock et des liens.
+        const { m, brouillon } = await creerMarchandEtBrouillon(
+          getContainer, "etal-publication-doublon", "Étal Doublon"
+        )
+        const zone = brouillon.zones[0].id
+        const entree = entreePublication(m, brouillon, [
+          { zone_id: zone, label: "Tomates fraîches", price: "500", quantity: 1, colors: [], sizes: [] },
+          // Libellé DIFFÉRENT : ce cas ne heurte pas l'index de handle, il
+          // heurte l'unicité du lien zone → produit. Un test qui répéterait
+          // le même libellé se serait arrêté sur la première des deux
+          // violations et n'aurait rien prouvé sur la seconde.
+          { zone_id: zone, label: "Tomates mûres", price: "600", quantity: 2, colors: [], sizes: [] },
+        ])
+
+        const { aEchoue, avant, apres, message } = await tenterPublicationRefusee(getContainer, entree)
+        expect(aEchoue).toBe(true)
+        expect(apres).toBe(avant)
+        expect(message).toContain("même zone")
+      })
     })
   },
 })
