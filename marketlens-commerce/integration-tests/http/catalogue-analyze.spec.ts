@@ -190,6 +190,67 @@ medusaIntegrationTestRunner({
           await vision.fermer()
         }
       })
+
+      it("n'orpheline aucun catalogue si l'écriture groupée des zones échoue", async () => {
+        // Complète le fix du reviewer (un appel groupé plutôt qu'une boucle
+        // d'appels un par un). Même avec un appel unique, la création du
+        // catalogue et celle des zones restent deux appels distincts au
+        // service, chacun dans sa propre transaction. Si ce second appel
+        // échoue APRÈS que le premier a réussi, le step
+        // `create-catalogue-draft` lui-même n'a jamais retourné de
+        // `StepResponse` : l'orchestrateur n'invoque donc jamais sa
+        // compensation (elle a besoin des données que seul un retour réussi
+        // fournit). Sans le filet ajouté dans le step (`try/catch` autour de
+        // l'écriture des zones, qui efface le catalogue avant de repropager
+        // l'erreur), le catalogue resterait en base, orphelin et sans aucune
+        // zone — en contradiction avec « une analyse ratée ne coûte rien et
+        // s'annule sans trace ».
+        const titreDistinctif = "Titre Echec Zones Unique 2c91"
+
+        const vision = await servirVisionFactice({
+          detect: {
+            products: [
+              { label: "Bananes", x: 100, y: 100, width: 50, height: 50, category: "fruits_legumes" },
+            ],
+            count: 1,
+          },
+        })
+
+        try {
+          const { result: m } = await createMerchantWorkflow(getContainer()).run({
+            input: { name: "Étal Echec Zones", handle: "etal-echec-zones", phone: "22990008004" },
+          })
+
+          const service = getContainer().resolve<VisualCatalogModuleService>(VISUAL_CATALOG_MODULE)
+          const spy = jest
+            .spyOn(service, "createCatalogueZones")
+            .mockRejectedValueOnce(new Error("échec simulé de l'écriture groupée des zones"))
+
+          let aEchoue = false
+          try {
+            await analyzeCataloguePhotoWorkflow(getContainer()).run({
+              input: {
+                merchant_id: m.merchant_id,
+                filename: "etal.jpg",
+                content: Buffer.from([0xff, 0xd8, 0xff, 0xe0]).toString("binary"),
+                title: titreDistinctif,
+              },
+            })
+          } catch (e) {
+            aEchoue = true
+          } finally {
+            spy.mockRestore()
+          }
+          expect(aEchoue).toBe(true)
+
+          // Le cœur du test : aucun catalogue orphelin — le filet du step a
+          // effacé le catalogue déjà créé avant de repropager l'échec.
+          const cataloguesOrphelins = await service.listVisualCatalogues({ title: titreDistinctif })
+          expect(cataloguesOrphelins).toHaveLength(0)
+        } finally {
+          await vision.fermer()
+        }
+      })
     })
   },
 })
