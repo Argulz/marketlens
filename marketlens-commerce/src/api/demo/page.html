@@ -120,6 +120,8 @@
     <div class="corps">
       <div class="msg info" id="m4url"></div>
       <button id="b4" class="sec">Recharger la vitrine</button>
+      <a id="lien4" href="#" target="_blank" style="display:none;margin-left:10px;
+        font-size:13.5px">Ouvrir la vitrine dans un nouvel onglet &nearr;</a>
       <div class="msg" id="m4"></div>
       <div class="scene" id="scene2" style="display:none"><img id="annotee" alt=""></div>
       <table id="tab2" style="display:none">
@@ -309,7 +311,8 @@ $("b3").onclick = async () => {
 /* ---------- 4. vitrine ---------- */
 async function chargerVitrine(){
   const url = "/store/catalogues/" + etat.handleCat
-  $("m4url").textContent = "GET " + url + "   (en-tête x-publishable-api-key)"
+  $("m4url").textContent = "Lien public partageable : " + location.origin + "/c/" + etat.handleCat
+  const a = $("lien4"); a.href = "/c/" + etat.handleCat; a.style.display = "inline"
   dire($("m4"), "Chargement…", "info")
   try {
     const r = await fetch(url, { headers: { "x-publishable-api-key": etat.cle } })
