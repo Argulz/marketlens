@@ -131,11 +131,13 @@
 
   <!-- 5 -->
   <section class="acte replie" id="a5">
-    <h2><i class="num">5</i> L'isolation, en une requête</h2>
+    <h2><i class="num">5</i> Une commerçante ne voit jamais la boutique d'une autre</h2>
     <div class="corps">
-      <div class="etiq">Crée un second marchand et interroge SES catalogues avec SON jeton.
-        Il ne doit rien voir de la boutique précédente.</div>
-      <button id="b5" class="sec">Vérifier le cloisonnement</button>
+      <div class="etiq">Ce bouton crée une <b>deuxième commerçante</b>, se connecte à sa place,
+        et lui demande de montrer ses catalogues.<br>
+        Elle vient d'arriver : elle doit voir <b>zéro</b> — et surtout pas le catalogue
+        publié plus haut, qui vit pourtant dans la même base de données.</div>
+      <button id="b5" class="sec">Créer une concurrente et regarder ce qu'elle voit</button>
       <div class="msg" id="m5"></div>
     </div>
   </section>
