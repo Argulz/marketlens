@@ -3,7 +3,7 @@ import { AuthenticatedMedusaRequest, MedusaResponse } from "@medusajs/framework/
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
 import publishCatalogueWorkflow from "../../../../../workflows/publish-catalogue"
 import { assurerRegionXof } from "../../../../../workflows/ensure-region"
-import { catalogueDuMarchand } from "../../scope"
+import { catalogueDuMarchand, etiquetteJournal, marchandActifOuRefus } from "../../scope"
 import { VISUAL_CATALOG_MODULE } from "../../../../../modules/visual-catalog"
 import VisualCatalogModuleService from "../../../../../modules/visual-catalog/service"
 import { NOM_ERREUR_VALIDATION_PUBLICATION } from "../../../../../workflows/steps/erreur-validation-publication"
@@ -41,6 +41,21 @@ function clefFichierLocaleDepuisUrl(url: string): string {
 
 export const POST = async (req: AuthenticatedMedusaRequest, res: MedusaResponse) => {
   const merchantId = req.auth_context.actor_id
+
+  // En TÊTE, avant même de résoudre le catalogue : un marchand suspendu ne
+  // publie plus rien, et un actor_id orphelin ne publie pas au nom d'un
+  // marchand disparu. Ce contrôle précède le 404 d'appartenance et le 409
+  // « déjà publié » : le statut du compte est une question d'identité, pas
+  // d'état du catalogue.
+  const controle = await marchandActifOuRefus(
+    req.scope,
+    merchantId,
+    etiquetteJournal(req, `POST /merchant/catalogues/${req.params.id}/publish`)
+  )
+  if (!controle.autorise) {
+    return res.status(controle.statut).json({ message: controle.message })
+  }
+
   const catalogue = await catalogueDuMarchand(req.scope, merchantId, req.params.id)
 
   if (!catalogue) {

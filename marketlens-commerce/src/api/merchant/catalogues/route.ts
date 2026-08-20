@@ -1,8 +1,20 @@
 import { AuthenticatedMedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import analyzeCataloguePhotoWorkflow from "../../../workflows/analyze-catalogue-photo"
-import { cataloguesDuMarchand } from "./scope"
+import { cataloguesDuMarchand, etiquetteJournal, marchandActifOuRefus } from "./scope"
 
 export const GET = async (req: AuthenticatedMedusaRequest, res: MedusaResponse) => {
+  // En TÊTE, avant toute lecture : un marchand supprimé recevait sinon
+  // `200 []` (indiscernable d'un marchand actif sans catalogue) et un
+  // marchand suspendu voyait encore ses catalogues.
+  const controle = await marchandActifOuRefus(
+    req.scope,
+    req.auth_context.actor_id,
+    etiquetteJournal(req, "GET /merchant/catalogues")
+  )
+  if (!controle.autorise) {
+    return res.status(controle.statut).json({ message: controle.message })
+  }
+
   const catalogues = await cataloguesDuMarchand(req.scope, req.auth_context.actor_id)
   res.json({
     catalogues: catalogues.map((c) => ({
@@ -15,6 +27,18 @@ export const GET = async (req: AuthenticatedMedusaRequest, res: MedusaResponse) 
 }
 
 export const POST = async (req: AuthenticatedMedusaRequest, res: MedusaResponse) => {
+  // En TÊTE, avant même de regarder le fichier : un marchand suspendu ne doit
+  // pas faire travailler le service de vision, et un actor_id orphelin ne doit
+  // pas créer un catalogue rattaché à un marchand inexistant.
+  const controle = await marchandActifOuRefus(
+    req.scope,
+    req.auth_context.actor_id,
+    etiquetteJournal(req, "POST /merchant/catalogues")
+  )
+  if (!controle.autorise) {
+    return res.status(controle.statut).json({ message: controle.message })
+  }
+
   // Posé par `upload.array("image")` (src/api/middlewares.ts), en mémoire.
   const fichier = (req as any).files?.[0]
   if (!fichier) {

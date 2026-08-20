@@ -1,68 +1,30 @@
 import { AuthenticatedMedusaRequest, MedusaResponse } from "@medusajs/framework/http"
-import { MedusaError, ContainerRegistrationKeys } from "@medusajs/framework/utils"
-import { MERCHANT_MODULE } from "../../../modules/merchant"
-import MerchantModuleService from "../../../modules/merchant/service"
+import { etiquetteJournal, marchandActifOuRefus } from "../catalogues/scope"
 
-// Même message que l'absence d'actor_id ci-dessous : dans les deux cas, le
-// jeton ne correspond plus à un marchand actif. actor_id ne vient jamais du
-// client (il est posé par setAuthAppMetadataStep à l'inscription), donc un
-// marchand introuvable ne peut résulter que d'un rattachement devenu
-// invalide (marchand supprimé) — pas d'une ressource que le client aurait
-// mal identifiée. Traiter ce cas comme un problème d'identité (401) plutôt
-// que comme une ressource absente (404) garde un contrat d'erreur unique
-// pour cette route et évite de calquer le message anglais généré par le
-// dépôt Medusa (`Merchant with id: <id> was not found`).
-//
-// Le message est unique côté client, mais les deux branches se distinguent
-// dans les journaux : un jeton sans actor_id est une configuration
-// d'authentification incomplète, tandis qu'un actor_id qui ne résout plus
-// est un marchand disparu sous une identité toujours vivante — un incident,
-// pas une erreur d'appelant.
-const MESSAGE_IDENTITE_NON_RATTACHEE = "Identité non rattachée à un marchand"
-
+/**
+ * Cette route ne décide plus elle-même si un marchand a le droit d'être
+ * servi : elle délègue à `marchandActifOuRefus` (src/api/merchant/catalogues/scope.ts),
+ * qui porte les trois refus (401 identité non rattachée, 401 rattachement
+ * orphelin, 403 statut non actif) pour TOUTES les routes marchand. Il n'y a
+ * qu'un seul point de décision : deux copies de cette logique divergeraient,
+ * et c'est exactement ce qui s'était produit — seule cette route lisait
+ * `status`, si bien qu'une suspension n'avait aucun effet ailleurs.
+ */
 export const GET = async (req: AuthenticatedMedusaRequest, res: MedusaResponse) => {
-  const logger = req.scope.resolve(ContainerRegistrationKeys.LOGGER)
-  const merchantId = req.auth_context.actor_id
-
-  if (!merchantId) {
-    logger.warn(
-      `GET /merchant/me : jeton authentifié sans actor_id (auth_identity_id=${req.auth_context.auth_identity_id}) — identité jamais rattachée à un marchand.`
-    )
-    return res.status(401).json({ message: MESSAGE_IDENTITE_NON_RATTACHEE })
-  }
-
-  const service = req.scope.resolve<MerchantModuleService>(MERCHANT_MODULE)
-
-  let marchand
-  try {
-    marchand = await service.retrieveMerchant(merchantId)
-  } catch (e) {
-    if (e instanceof MedusaError && e.type === MedusaError.Types.NOT_FOUND) {
-      logger.warn(
-        `GET /merchant/me : actor_id=${merchantId} (auth_identity_id=${req.auth_context.auth_identity_id}) ne résout aucun marchand — rattachement orphelin.`
-      )
-      return res.status(401).json({ message: MESSAGE_IDENTITE_NON_RATTACHEE })
-    }
-    throw e
-  }
-
-  // `status` n'est pas décoratif : un marchand `pending` (jamais provisionné
-  // par le workflow) ou `suspended` (coupé par l'opérateur) porte une
-  // identité valide, mais ne doit pas être servi. Sans ce contrôle, la
-  // suspension d'un marchand n'aurait aucun effet observable.
-  if (marchand.status !== "active") {
-    logger.warn(
-      `GET /merchant/me : marchand ${merchantId} refusé, statut « ${marchand.status} ».`
-    )
-    return res.status(403).json({
-      message: `Compte marchand inactif (statut : ${marchand.status})`,
-    })
+  const controle = await marchandActifOuRefus(
+    req.scope,
+    req.auth_context.actor_id,
+    etiquetteJournal(req, "GET /merchant/me")
+  )
+  if (!controle.autorise) {
+    return res.status(controle.statut).json({ message: controle.message })
   }
 
   // Réponse façonnée à la main sur les sept champs du contrat : le modèle
   // DML expose aussi created_at/updated_at/deleted_at, que la route ne doit
   // jamais laisser fuir (deleted_at révélerait la suppression logique).
-  const { id, name, handle, phone, whatsapp_phone, currency_code, status } = marchand
+  const { id, name, handle, phone, whatsapp_phone, currency_code, status } =
+    controle.marchand
 
   res.json({
     merchant: { id, name, handle, phone, whatsapp_phone, currency_code, status },
