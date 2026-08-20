@@ -209,6 +209,84 @@ medusaIntegrationTestRunner({
         expect(vitrine.data.zones[0].product.title).toBe("Tomates de vitrine")
         expect(vitrine.data.zones[0].product.variants.length).toBeGreaterThanOrEqual(1)
       })
+
+      it("une panne en aval de la publication (service de vision indisponible) rend 500, jamais 400 — ce n'est pas une erreur de saisie", async () => {
+        const marchand = await inscrireEtAnalyser(api, "etal-cat-panne", "22990009005")
+
+        // L'annotation intervient APRÈS la création des produits (comme dans
+        // catalogue-publish.spec.ts) : la faire échouer exerce un vrai échec
+        // d'infrastructure en aval de toute validation de saisie, pas une
+        // entrée refusée à l'entrée du workflow.
+        const vision = await servirVisionFactice({
+          detect: { products: [ZONE_TOMATES], count: 1 },
+          statutAnnotate: 502,
+        })
+        let reponse: any
+        try {
+          reponse = await api
+            .post(
+              `/merchant/catalogues/${marchand.catalogueId}/publish`,
+              {
+                items: [
+                  {
+                    zone_id: marchand.zones[0].id,
+                    label: "Tomates fraîches",
+                    price: "500",
+                    quantity: 1,
+                    colors: [],
+                    sizes: [],
+                  },
+                ],
+              },
+              { headers: { authorization: `Bearer ${marchand.jeton}` } }
+            )
+            .catch((e: any) => e.response)
+        } finally {
+          await vision.fermer()
+        }
+
+        expect(reponse.status).toBe(500)
+        // Message stable et générique : jamais le texte technique brut de
+        // l'erreur d'origine (ici « Le service de vision a échoué (502) »,
+        // mais ce pourrait être une contrainte Postgres ou un TypeError V8).
+        expect(reponse.data.message).toBe(
+          "La publication du catalogue a échoué. Réessayez plus tard."
+        )
+      })
+
+      it("un article sans colors/sizes est refusé par un message français nommant l'article, pas un TypeError anglais brut", async () => {
+        const marchand = await inscrireEtAnalyser(api, "etal-cat-forme", "22990009006")
+
+        const vision = await servirVisionFactice({
+          detect: { products: [ZONE_TOMATES], count: 1 },
+        })
+        let reponse: any
+        try {
+          reponse = await api
+            .post(
+              `/merchant/catalogues/${marchand.catalogueId}/publish`,
+              {
+                items: [
+                  {
+                    zone_id: marchand.zones[0].id,
+                    label: "Tomates sans forme",
+                    price: "500",
+                    quantity: 1,
+                    // colors et sizes délibérément absents.
+                  },
+                ],
+              },
+              { headers: { authorization: `Bearer ${marchand.jeton}` } }
+            )
+            .catch((e: any) => e.response)
+        } finally {
+          await vision.fermer()
+        }
+
+        expect(reponse.status).toBe(400)
+        expect(reponse.data.message).toContain("Tomates sans forme")
+        expect(reponse.data.message).toContain("couleurs")
+      })
     })
   },
 })

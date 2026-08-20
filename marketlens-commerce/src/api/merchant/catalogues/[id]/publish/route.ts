@@ -6,6 +6,10 @@ import { assurerRegionXof } from "../../../../../workflows/ensure-region"
 import { catalogueDuMarchand } from "../../scope"
 import { VISUAL_CATALOG_MODULE } from "../../../../../modules/visual-catalog"
 import VisualCatalogModuleService from "../../../../../modules/visual-catalog/service"
+import { NOM_ERREUR_VALIDATION_PUBLICATION } from "../../../../../workflows/steps/erreur-validation-publication"
+
+const MESSAGE_ECHEC_GENERIQUE =
+  "La publication du catalogue a échoué. Réessayez plus tard."
 
 /**
  * Le fournisseur de fichiers local (celui utilisé par ce projet, faute de
@@ -128,10 +132,31 @@ export const POST = async (req: AuthenticatedMedusaRequest, res: MedusaResponse)
     })
     res.json(result)
   } catch (e: any) {
-    // Le rejet d'un `.run()` de workflow n'est pas une instance d'`Error`,
-    // mais porte tout de même le message français de l'étape qui a refusé
-    // (verifierCatalogueMarchandStep, validerItemsPublicationStep) — sûr à
-    // renvoyer tel quel au client.
-    res.status(400).json({ message: e?.message || "La publication du catalogue a échoué." })
+    // Le rejet d'un `.run()` de workflow n'est pas une instance d'`Error`
+    // (l'orchestrateur le remplace par une copie en objet simple — voir
+    // erreur-validation-publication.ts pour la référence exacte), donc
+    // `instanceof` est inutilisable ici : seul `e.name` — copié tel quel
+    // par cette sérialisation — permet de reconnaître une erreur de SAISIE
+    // levée par `validerItemsPublicationStep`.
+    //
+    // Tout le reste (panne du service de vision, de la base, d'un module
+    // Medusa interne, ou même le refus de `verifierCatalogueMarchandStep`
+    // qui ne devrait plus jamais se produire ici puisque l'appartenance est
+    // déjà vérifiée plus haut) n'est PAS une erreur de saisie : la
+    // compter comme un 400 la rendrait invisible à la supervision (une
+    // panne serveur prise pour une faute du marchand) et renverrait au
+    // passage un texte technique brut (contrainte Postgres, `TypeError`
+    // V8...) à un marchand authentifié — la même fuite que le chemin de
+    // lecture de fichier plus haut évite déjà en journalisant côté serveur
+    // et en répondant un message stable.
+    if (e?.name === NOM_ERREUR_VALIDATION_PUBLICATION) {
+      return res.status(400).json({ message: e.message })
+    }
+
+    const logger = req.scope.resolve(ContainerRegistrationKeys.LOGGER)
+    logger.error(
+      `POST /merchant/catalogues/${catalogue.id}/publish : échec inattendu — ${e?.message}`
+    )
+    res.status(500).json({ message: MESSAGE_ECHEC_GENERIQUE })
   }
 }
