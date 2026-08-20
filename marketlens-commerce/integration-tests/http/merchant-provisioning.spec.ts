@@ -104,6 +104,19 @@ medusaIntegrationTestRunner({
         expect(salesChannelsApres).toHaveLength(salesChannelsAvant.length)
         expect(stockLocationsApres).toHaveLength(stockLocationsAvant.length)
       })
+
+      it("normalise le handle même appelé directement par le workflow", async () => {
+        // La normalisation vivait dans la route d'inscription. Tout appel direct
+        // — script d'opérateur, autre workflow — persistait un handle brut, et
+        // deux casses différentes se disputeraient la même URL publique /c/<handle>.
+        const { result } = await createMerchantWorkflow(getContainer()).run({
+          input: { name: "Étal Direct", handle: "  ETAL-Direct  ", phone: "22990007001" },
+        })
+
+        const service = getContainer().resolve(MERCHANT_MODULE)
+        const marchand = await service.retrieveMerchant(result.merchant_id)
+        expect(marchand.handle).toBe("etal-direct")
+      })
     })
   },
 })

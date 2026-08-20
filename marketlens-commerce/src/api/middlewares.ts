@@ -25,6 +25,14 @@ export default defineMiddlewares({
       ],
     },
     {
+      // La règle d'inscription ci-dessus ne couvre que POST, et le matcher
+      // général exclut /merchant/register pour tous les verbes. Sans cette
+      // règle, tout autre verbe sur ce chemin serait non authentifié.
+      matcher: "/merchant/register",
+      methods: ["GET", "PUT", "PATCH", "DELETE"],
+      middlewares: [authenticate("merchant", ["session", "bearer"])],
+    },
+    {
       // Tout le reste exige une identité déjà rattachée. Le matcher exclut
       // explicitement /merchant/register par une négation dans l'expression
       // régulière : dans ce SDK, RoutesSorter classe les règles sans méthode
