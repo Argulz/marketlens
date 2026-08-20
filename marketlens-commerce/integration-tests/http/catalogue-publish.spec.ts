@@ -34,6 +34,70 @@ function zonesPourPublication(zones: any[]) {
   }))
 }
 
+/** Crée un marchand et analyse une photo pour lui, via un serveur factice
+ *  fermé avant le retour — les tests qui appellent ce helper n'ont donc
+ *  pas à gérer eux-mêmes le cycle de vie de ce premier serveur. */
+async function creerMarchandEtBrouillon(getContainer: any, handle: string, nom: string) {
+  const vision = await servirVisionFactice({
+    detect: { products: [ZONE_TOMATES], count: 1 },
+  })
+  try {
+    const { result: m } = await createMerchantWorkflow(getContainer()).run({
+      input: { name: nom, handle, phone: "22990009900" },
+    })
+    const { result: brouillon } = await analyzeCataloguePhotoWorkflow(getContainer()).run({
+      input: { merchant_id: m.merchant_id, filename: "etal.jpg", content: CONTENU_PHOTO, title: "Étal" },
+    })
+    return { m, brouillon }
+  } finally {
+    await vision.fermer()
+  }
+}
+
+function entreePublication(m: any, brouillon: any, items: any[]) {
+  return {
+    catalogue_id: brouillon.catalogue_id,
+    merchant_id: m.merchant_id,
+    sales_channel_id: m.sales_channel_id,
+    stock_location_id: m.stock_location_id,
+    source_content: CONTENU_PHOTO,
+    source_filename: "etal.jpg",
+    zones: zonesPourPublication(brouillon.zones),
+    items,
+  }
+}
+
+/** Tente une publication censée être refusée avant toute écriture : ouvre
+ *  son propre serveur factice (fermé dans un `finally`), lance la
+ *  publication, et rapporte si elle a échoué ainsi que le delta de
+ *  produits — qui doit rester nul si le refus a bien eu lieu avant la
+ *  création des produits plutôt qu'après. */
+async function tenterPublicationRefusee(getContainer: any, entree: any) {
+  const vision = await servirVisionFactice({ detect: { products: [ZONE_TOMATES], count: 1 } })
+  try {
+    const avant = await compterProduits(getContainer())
+    let aEchoue = false
+    // Le rejet d'un `.run()` de workflow n'est pas un `Error` (pitfall
+    // documenté), mais porte tout de même un `.message` exploitable — on le
+    // capture pour distinguer NOTRE message français d'une erreur technique
+    // qui remonterait d'ailleurs dans la chaîne (Postgres, NaN, etc.) : les
+    // deux feraient échouer la publication, mais seul le nôtre prouve que
+    // c'est bien la validation en tête de workflow qui a agi, avant toute
+    // écriture.
+    let message = ""
+    try {
+      await publishCatalogueWorkflow(getContainer()).run({ input: entree })
+    } catch (e: any) {
+      aEchoue = true
+      message = e?.message ?? ""
+    }
+    const apres = await compterProduits(getContainer())
+    return { aEchoue, avant, apres, message }
+  } finally {
+    await vision.fermer()
+  }
+}
+
 medusaIntegrationTestRunner({
   testSuite: ({ getContainer }) => {
     describe("publishCatalogue", () => {
@@ -111,6 +175,18 @@ medusaIntegrationTestRunner({
           const cat = await service.retrieveVisualCatalogue(brouillon.catalogue_id)
           expect(cat.status).toBe("published")
           expect(cat.annotated_image_url).toBeTruthy()
+
+          // Le rattachement au canal de vente du marchand porte toute
+          // l'isolation de la vitrine : une régression qui l'omettrait dans
+          // le transform ne serait attrapée par aucun autre test.
+          const { data: avecCanaux } = await query.graph({
+            entity: "product",
+            fields: ["id", "sales_channels.id"],
+            filters: { id: result.product_ids },
+          })
+          for (const produit of avecCanaux as any[]) {
+            expect(produit.sales_channels.map((c: any) => c.id)).toEqual([m.sales_channel_id])
+          }
 
           // Les prix sont réellement persistés, en XOF.
           const { data: avecPrix } = await query.graph({
@@ -219,6 +295,123 @@ medusaIntegrationTestRunner({
         } finally {
           await vision.fermer()
         }
+      })
+
+      it("préfixe le handle produit par celui du marchand pour éviter toute collision inter-marchands", async () => {
+        // Sans préfixe, Medusa dérive le handle du titre (toHandle) et son
+        // index est unique à l'échelle de l'INSTANCE, pas du marchand :
+        // deux marchands publiant le même libellé se disputeraient le même
+        // handle, et le second échouerait après création de ses produits.
+        // Ce test échouerait sans le préfixe (la seconde publication lève
+        // une violation de contrainte Postgres au lieu de réussir).
+        const { m: m1, brouillon: b1 } = await creerMarchandEtBrouillon(
+          getContainer, "etal-publication-un", "Étal Un"
+        )
+        const { m: m2, brouillon: b2 } = await creerMarchandEtBrouillon(
+          getContainer, "etal-publication-deux", "Étal Deux"
+        )
+
+        const vision = await servirVisionFactice({ detect: { products: [ZONE_TOMATES], count: 1 } })
+        try {
+          const { result: r1 } = await publishCatalogueWorkflow(getContainer()).run({
+            input: entreePublication(m1, b1, [
+              { zone_id: b1.zones[0].id, label: "Tomates fraîches", price: "500", quantity: 1, colors: [], sizes: [] },
+            ]),
+          })
+          const { result: r2 } = await publishCatalogueWorkflow(getContainer()).run({
+            input: entreePublication(m2, b2, [
+              { zone_id: b2.zones[0].id, label: "Tomates fraîches", price: "500", quantity: 1, colors: [], sizes: [] },
+            ]),
+          })
+
+          expect(r1.product_ids).toHaveLength(1)
+          expect(r2.product_ids).toHaveLength(1)
+
+          const query = getContainer().resolve(ContainerRegistrationKeys.QUERY)
+          const { data } = await query.graph({
+            entity: "product",
+            fields: ["id", "handle"],
+            filters: { id: [...r1.product_ids, ...r2.product_ids] },
+          })
+          const handles = (data as any[]).map((p) => p.handle)
+          expect(new Set(handles).size).toBe(2) // aucune collision
+          expect(handles.find((h) => h.startsWith("etal-publication-un-"))).toBeTruthy()
+          expect(handles.find((h) => h.startsWith("etal-publication-deux-"))).toBeTruthy()
+        } finally {
+          await vision.fermer()
+        }
+      })
+
+      it("refuse de publier un catalogue qui n'appartient pas au marchand indiqué", async () => {
+        const { brouillon: b1 } = await creerMarchandEtBrouillon(
+          getContainer, "etal-publication-proprio", "Étal Propriétaire"
+        )
+        const { m: m2 } = await creerMarchandEtBrouillon(
+          getContainer, "etal-publication-intrus", "Étal Intrus"
+        )
+
+        // m2 tente de publier le catalogue de b1 (créé pour un autre
+        // marchand) — le rattachement doit être refusé en tête de
+        // workflow, avant toute écriture.
+        const entree = entreePublication(m2, b1, [
+          { zone_id: b1.zones[0].id, label: "Tomates fraîches", price: "500", quantity: 1, colors: [], sizes: [] },
+        ])
+
+        const { aEchoue, avant, apres, message } = await tenterPublicationRefusee(getContainer, entree)
+        expect(aEchoue).toBe(true)
+        expect(apres).toBe(avant) // aucune écriture n'a eu lieu
+        expect(message).toBe("Ce catalogue n'appartient pas à ce marchand.")
+      })
+
+      it("refuse un prix non numérique et n'écrit aucun produit", async () => {
+        const { m, brouillon } = await creerMarchandEtBrouillon(
+          getContainer, "etal-publication-prix", "Étal Prix"
+        )
+        const entree = entreePublication(m, brouillon, [
+          { zone_id: brouillon.zones[0].id, label: "Tomates fraîches", price: "500 FCFA", quantity: 1, colors: [], sizes: [] },
+        ])
+
+        const { aEchoue, avant, apres, message } = await tenterPublicationRefusee(getContainer, entree)
+        expect(aEchoue).toBe(true)
+        expect(apres).toBe(avant)
+        // Sans la validation en tête de workflow, `Number("500 FCFA")`
+        // produit un `NaN` qui échoue plus loin, après écritures, avec le
+        // message technique anglais de la pricing (« Cannot set value NaN
+        // for amount. ») — constaté par inspection directe. Ce message
+        // français prouve que c'est bien NOTRE contrôle qui a agi, avant
+        // toute écriture.
+        expect(message).toContain("Le prix de « Tomates fraîches »")
+      })
+
+      it("refuse une zone_id inconnue et n'écrit aucun produit", async () => {
+        const { m, brouillon } = await creerMarchandEtBrouillon(
+          getContainer, "etal-publication-zone", "Étal Zone"
+        )
+        const entree = entreePublication(m, brouillon, [
+          { zone_id: "zone_inexistante", label: "Tomates fraîches", price: "500", quantity: 1, colors: [], sizes: [] },
+        ])
+
+        const { aEchoue, avant, apres, message } = await tenterPublicationRefusee(getContainer, entree)
+        expect(aEchoue).toBe(true)
+        expect(apres).toBe(avant)
+        // Sans la validation, `i.zones.find(...)!` lève un `TypeError` brut
+        // en anglais dans l'étape d'annotation, après la création des
+        // produits, du stock et des liens.
+        expect(message).toContain("référence une zone inconnue")
+      })
+
+      it("refuse une quantité négative ou non entière et n'écrit aucun produit", async () => {
+        const { m, brouillon } = await creerMarchandEtBrouillon(
+          getContainer, "etal-publication-qte", "Étal Quantité"
+        )
+        const entree = entreePublication(m, brouillon, [
+          { zone_id: brouillon.zones[0].id, label: "Tomates fraîches", price: "500", quantity: -1, colors: [], sizes: [] },
+        ])
+
+        const { aEchoue, avant, apres, message } = await tenterPublicationRefusee(getContainer, entree)
+        expect(aEchoue).toBe(true)
+        expect(message).toContain("La quantité de « Tomates fraîches »")
+        expect(apres).toBe(avant)
       })
     })
   },

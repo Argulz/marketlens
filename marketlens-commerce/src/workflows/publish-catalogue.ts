@@ -6,10 +6,12 @@ import {
   uploadFilesWorkflow,
   useQueryGraphStep,
 } from "@medusajs/medusa/core-flows"
-import { Modules } from "@medusajs/framework/utils"
+import { Modules, toHandle } from "@medusajs/framework/utils"
 import { VISUAL_CATALOG_MODULE } from "../modules/visual-catalog"
 import { annotateCatalogueStep } from "./steps/annotate-catalogue"
 import { publierCatalogueStep } from "./steps/publier-catalogue"
+import { verifierCatalogueMarchandStep } from "./steps/verifier-catalogue-marchand"
+import { validerItemsPublicationStep } from "./steps/valider-items-publication"
 
 export type ItemPublication = {
   zone_id: string
@@ -56,8 +58,25 @@ function variantesDe(item: ItemPublication) {
 const publishCatalogueWorkflow = createWorkflow(
   "publish-catalogue",
   (input: PublishCatalogueInput) => {
-    const donneesProduits = transform(input, (i) => ({
-      products: i.items.map((item) => {
+    // Deux contrôles en tête, avant toute écriture : (1) le catalogue
+    // appartient bien au marchand indiqué — sans quoi `merchant_id` ne
+    // servirait à rien — et (2) chaque article référence une zone connue
+    // avec un prix et une quantité exploitables. Les repousser après la
+    // création des produits transformerait une saisie fautive en produits,
+    // stock et liens orphelins, compensés au mieux-effort plutôt
+    // qu'évités.
+    const verif = verifierCatalogueMarchandStep({
+      catalogue_id: input.catalogue_id,
+      merchant_id: input.merchant_id,
+    })
+
+    validerItemsPublicationStep({
+      zones: input.zones,
+      items: input.items,
+    })
+
+    const donneesProduits = transform({ input, verif }, (d) => ({
+      products: d.input.items.map((item) => {
         const options: { title: string; values: string[] }[] = []
         if (item.colors.length) options.push({ title: "Couleur", values: item.colors })
         if (item.sizes.length) options.push({ title: "Taille", values: item.sizes })
@@ -65,9 +84,21 @@ const publishCatalogueWorkflow = createWorkflow(
 
         return {
           title: item.label,
+          // Le handle produit porte un index unique à l'échelle de
+          // l'instance (`IDX_product_handle_unique`), tout comme le
+          // handle catalogue ou le sous-domaine marchand — une troisième
+          // construction globale que rien d'autre ne protège. Sans
+          // préfixe, Medusa le dérive du titre (`toHandle(title)`) et deux
+          // marchands publiant « Tomates fraîches » se disputent le même
+          // handle : le second échoue après création de ses produits,
+          // compensés mais sur un message technique en anglais. On
+          // préfixe donc par le handle du marchand plutôt que son
+          // identifiant : déjà unique, et lisible dans une URL
+          // publique (`/c/<handle>/...`) là où l'identifiant ne l'est pas.
+          handle: `${d.verif.merchant_handle}-${toHandle(item.label)}`,
           description: item.description ?? "",
           status: "published" as const,
-          sales_channels: [{ id: i.sales_channel_id }],
+          sales_channels: [{ id: d.input.sales_channel_id }],
           options,
           variants: variantesDe(item).map((v) => ({
             title: v.titre,
