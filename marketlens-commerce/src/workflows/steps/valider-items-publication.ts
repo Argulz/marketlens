@@ -34,6 +34,18 @@ export type ValiderItemsPublicationInput = {
 export const validerItemsPublicationStep = createStep(
   "valider-items-publication",
   async (input: ValiderItemsPublicationInput) => {
+    // Un tableau vide n'est pas un catalogue publiable : la boucle
+    // ci-dessous n'aurait rien à refuser, le workflow irait au bout et
+    // basculerait le catalogue en `published` sans aucun produit, avec une
+    // image « annotée » sans annotation. La route refusant en 409 toute
+    // republication et aucune route de dépublication n'existant, l'état
+    // serait définitif — irrécupérable par API.
+    if (input.items.length === 0) {
+      throw new ErreurValidationPublication(
+        "Un catalogue doit contenir au moins un article pour être publié."
+      )
+    }
+
     const idsZones = new Set(input.zones.map((z) => z.id))
 
     for (const item of input.items) {

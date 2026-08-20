@@ -485,6 +485,30 @@ medusaIntegrationTestRunner({
         expect(message).toContain("La quantité de « Tomates fraîches »")
         expect(apres).toBe(avant)
       })
+
+      it("refuse un catalogue sans aucun article : une publication vide est irrécupérable", async () => {
+        // `items: []` traversait toute la validation (« c'est un tableau »),
+        // la boucle de contrôle ne voyait aucun article à refuser, et le
+        // workflow allait au bout : aucun produit, une image annotée sans
+        // annotation, et le catalogue basculé en `published`. Or la route
+        // refuse en 409 toute republication et il n'existe AUCUNE route de
+        // dépublication : un clic malheureux transformait définitivement un
+        // brouillon en catalogue publié vide.
+        const { m, brouillon } = await creerMarchandEtBrouillon(
+          getContainer, "etal-publication-vide", "Étal Vide"
+        )
+        const entree = entreePublication(m, brouillon, [])
+
+        const { aEchoue, avant, apres, message } = await tenterPublicationRefusee(getContainer, entree)
+        expect(aEchoue).toBe(true)
+        expect(apres).toBe(avant)
+        expect(message).toContain("au moins un article")
+
+        // Le cœur du test : le catalogue reste un BROUILLON, donc republiable.
+        const service = getContainer().resolve<VisualCatalogModuleService>(VISUAL_CATALOG_MODULE)
+        const cat = await service.retrieveVisualCatalogue(brouillon.catalogue_id)
+        expect(cat.status).toBe("draft")
+      })
     })
   },
 })
