@@ -160,6 +160,20 @@ const publishCatalogueWorkflow = createWorkflow(
         )
       )
 
+      // « Du vrai stock » est la promesse centrale de la publication, et son
+      // mode d'échec était MUET : appeler `createInventoryLevelsWorkflow`
+      // avec un tableau vide ne crée aucun niveau, ne lève rien, et laisse
+      // basculer le catalogue en `published` avec des produits sans stock —
+      // invendables. Un tableau vide ici signifie qu'aucune variante ne porte
+      // d'article d'inventaire : une incohérence interne (et non une faute de
+      // saisie, d'où une erreur nue que la route compte en 500), pas un état
+      // qu'on publie.
+      if (inventory_levels.length === 0) {
+        throw new Error(
+          "Aucun niveau de stock à créer : aucune variante publiée ne porte d'article d'inventaire. Publication interrompue."
+        )
+      }
+
       return { inventory_levels }
     })
 

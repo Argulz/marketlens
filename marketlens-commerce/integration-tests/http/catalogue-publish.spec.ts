@@ -575,6 +575,63 @@ medusaIntegrationTestRunner({
         expect(apres).toBe(avant)
         expect(message).toContain("même zone")
       })
+
+      it("refuse explicitement un tableau de niveaux d'inventaire vide au lieu de créer un catalogue sans stock", async () => {
+        // « Du vrai stock » est la promesse centrale de la publication, et son
+        // mode d'échec était MUET : si la requête des articles d'inventaire ne
+        // rendait rien, `createInventoryLevelsWorkflow` était appelé avec un
+        // tableau vide, ne créait aucun niveau, et le catalogue basculait en
+        // `published` avec des produits sans stock — invendables, sans qu'une
+        // seule erreur ne soit levée.
+        const { m, brouillon } = await creerMarchandEtBrouillon(
+          getContainer, "etal-publication-sans-stock", "Étal Sans Stock"
+        )
+        const entree = entreePublication(m, brouillon, [
+          { zone_id: brouillon.zones[0].id, label: "Tomates fraîches", price: "500", quantity: 7, colors: [], sizes: [] },
+        ])
+
+        // On simule le seul chemin qui produit ce tableau vide : la requête
+        // des articles d'inventaire des variantes ne rend aucun article. Tout
+        // le reste passe par la vraie implémentation.
+        const query: any = getContainer().resolve(ContainerRegistrationKeys.QUERY)
+        const vraieGraph = query.graph.bind(query)
+        const spy = jest
+          .spyOn(query, "graph")
+          .mockImplementation(async (...args: any[]) => {
+            const resultat: any = await vraieGraph(...args)
+            const config: any = args[0]
+            const demandeInventaire = (config?.fields ?? []).includes(
+              "variants.inventory_items.inventory_item_id"
+            )
+            if (config?.entity !== "product" || !demandeInventaire) return resultat
+            return {
+              ...resultat,
+              data: (resultat.data ?? []).map((produit: any) => ({
+                ...produit,
+                variants: (produit.variants ?? []).map((variante: any) => ({
+                  ...variante,
+                  inventory_items: [],
+                })),
+              })),
+            }
+          })
+
+        let resultatTentative: any
+        try {
+          resultatTentative = await tenterPublicationRefusee(getContainer, entree)
+        } finally {
+          spy.mockRestore()
+        }
+
+        const { aEchoue, avant, apres, message } = resultatTentative
+        expect(aEchoue).toBe(true)
+        expect(apres).toBe(avant) // les produits créés ont été compensés
+        expect(message).toContain("niveau de stock")
+
+        const service = getContainer().resolve<VisualCatalogModuleService>(VISUAL_CATALOG_MODULE)
+        const cat = await service.retrieveVisualCatalogue(brouillon.catalogue_id)
+        expect(cat.status).toBe("draft")
+      })
     })
   },
 })
