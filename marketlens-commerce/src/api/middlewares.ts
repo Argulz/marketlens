@@ -1,4 +1,13 @@
 import { defineMiddlewares, authenticate } from "@medusajs/framework/http"
+import multer from "multer"
+
+// `@medusajs/framework/http` n'exporte aucun `upload` prêt à l'emploi dans
+// cette version du SDK (vérifié : absent de son `index.js`) — seul le code
+// interne de `@medusajs/medusa` (route `/admin/uploads`) construit le sien
+// ainsi, en mémoire. On reproduit exactement le même motif plutôt que
+// d'écrire sur disque : les fichiers doivent transiter jusqu'à
+// `uploadFilesWorkflow`, qui attend un contenu en mémoire, pas un chemin.
+const upload = multer({ storage: multer.memoryStorage() })
 
 export default defineMiddlewares({
   routes: [
@@ -65,6 +74,15 @@ export default defineMiddlewares({
       // route sous /merchant/*.
       matcher: /^\/merchant(?:\/(?!register\/?$).*)?$/i,
       middlewares: [authenticate("merchant", ["session", "bearer"])],
+    },
+    {
+      // Règle à méthode explicite : le trieur de routes l'exécute après la
+      // règle générale ci-dessus (sans `methods`), qui rejoint donc
+      // toujours l'authentification avant que multer ne parse le corps
+      // multipart — un envoi non authentifié n'atteint jamais cette étape.
+      matcher: "/merchant/catalogues",
+      methods: ["POST"],
+      middlewares: [upload.array("image")],
     },
   ],
 })
