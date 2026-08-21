@@ -4,6 +4,12 @@ import { servirVisionFactice } from "./helpers/vision-stub"
 jest.setTimeout(90 * 1000)
 
 const ZONE_TOMATES = { label: "Tomates", x: 250, y: 400, width: 200, height: 150, category: "fruits_legumes" }
+// Deuxième zone distincte, pour le cas d'un catalogue publié dont certaines
+// zones n'ont pas été tarifées (contrainte globale n°9) : un seul produit
+// détecté ne peut jamais faire la preuve qu'une zone NON vendue reste
+// présente dans la réponse avec `product: null`, puisqu'il n'existerait
+// alors aucune autre zone à côté de laquelle l'observer.
+const ZONE_PAGNE = { label: "Pagne", x: 700, y: 500, width: 250, height: 300, category: "textile" }
 
 /** Corps multipart d'une photo d'étal minimale (quatre octets d'en-tête
  *  JPEG) : ce fichier n'éprouve jamais le décodage de l'image, seulement le
@@ -158,6 +164,110 @@ medusaIntegrationTestRunner({
         // Le libellé détecté par la vision et le titre du produit divergent
         // par construction : les deux champs coexistent, chacun avec son sens.
         expect(zone.detected_label).not.toBe(zone.product.title)
+      })
+
+      it("catalogue publié à deux zones, une seule tarifée : la zone non vendue reste product: null, jamais omise", async () => {
+        // Réplique manuelle d'inscrireEtAnalyser, mais avec DEUX zones
+        // détectées : ce helper est figé sur ZONE_TOMATES seule et ne
+        // convient pas ici — le brief demande explicitement un catalogue à
+        // au moins deux zones dont une partie seulement est tarifée.
+        const handle = "etal-detail-partiel"
+        const email = `${handle}@marketlens.test`
+        const inscription = await api.post("/auth/merchant/emailpass/register", {
+          email,
+          password: "motdepasse-de-test",
+        })
+        await api.post(
+          "/merchant/register",
+          { name: `Étal ${handle}`, handle, phone: "22990000075" },
+          { headers: { authorization: `Bearer ${inscription.data.token}` } }
+        )
+        const connexion = await api.post("/auth/merchant/emailpass", {
+          email,
+          password: "motdepasse-de-test",
+        })
+        const jeton = connexion.data.token
+
+        let catalogueId: string
+        let zones: any[]
+        const visionAnalyse = await servirVisionFactice({
+          detect: { products: [ZONE_TOMATES, ZONE_PAGNE], count: 2 },
+        })
+        try {
+          const reponse = await api.post(
+            "/merchant/catalogues",
+            corpsPhoto(`Catalogue de ${handle}`),
+            { headers: { authorization: `Bearer ${jeton}` } }
+          )
+          catalogueId = reponse.data.catalogue.id
+          zones = reponse.data.zones
+        } finally {
+          await visionAnalyse.fermer()
+        }
+        expect(zones.length).toBe(2)
+
+        // Publication PARTIELLE : un seul article, pour la zone des tomates.
+        // La zone du pagne n'est référencée par aucun `items[]` — elle reste
+        // sans produit, mais doit rester une zone du catalogue publié.
+        const visionPublish = await servirVisionFactice({
+          detect: { products: [ZONE_TOMATES, ZONE_PAGNE], count: 2 },
+        })
+        try {
+          const publication = await api.post(
+            `/merchant/catalogues/${catalogueId}/publish`,
+            {
+              items: [
+                {
+                  zone_id: zones[0].id,
+                  label: "Tomates du détail partiel",
+                  price: "500",
+                  quantity: 2,
+                  colors: [],
+                  sizes: [],
+                },
+              ],
+            },
+            { headers: { authorization: `Bearer ${jeton}` } }
+          )
+          expect(publication.status).toBe(200)
+        } finally {
+          await visionPublish.fermer()
+        }
+
+        const detail = await api.get(`/merchant/catalogues/${catalogueId}`, {
+          headers: { authorization: `Bearer ${jeton}` },
+        })
+        expect(detail.status).toBe(200)
+        expect(detail.data.catalogue.status).toBe("published")
+        // Le nombre de zones rendues est celui du CATALOGUE (deux), pas celui
+        // des zones vendues (une seule) : publier ne fait pas disparaître les
+        // zones restées sans produit.
+        expect(detail.data.catalogue.zones.length).toBe(2)
+
+        const zoneTarifee = detail.data.catalogue.zones.find(
+          (z: any) => z.id === zones[0].id
+        )
+        const zoneNonTarifee = detail.data.catalogue.zones.find(
+          (z: any) => z.id === zones[1].id
+        )
+        expect(zoneTarifee).toBeTruthy()
+        expect(zoneNonTarifee).toBeTruthy()
+
+        expect(zoneTarifee.product).toBeTruthy()
+        expect(zoneTarifee.product.title).toBe("Tomates du détail partiel")
+        expect(zoneTarifee.product.variants.length).toBeGreaterThanOrEqual(1)
+        expect(zoneTarifee.product.variants[0].prix).toBe(500)
+
+        // Le point précis du finding : le champ `product` doit EXISTER et
+        // valoir `null` sur la zone non vendue, pas disparaître de l'objet.
+        // `toBeNull()` seul ne distinguerait pas une clé absente (accès à une
+        // propriété inexistante, aussi `undefined`) d'une clé explicitement
+        // posée à `null` — `JSON.stringify` omettrait silencieusement une clé
+        // valant `undefined` côté serveur, alors qu'une clé valant `null` est
+        // sérialisée et traverse le réseau. D'où ce test sur la présence de
+        // la clé elle-même, pas seulement sur sa valeur.
+        expect("product" in zoneNonTarifee).toBe(true)
+        expect(zoneNonTarifee.product).toBeNull()
       })
     })
   },
