@@ -7,6 +7,7 @@ import {
 } from "@medusajs/framework/http"
 import multer from "multer"
 import { TAILLE_MAX_IMAGE_MO, TAILLE_MAX_IMAGE_OCTETS } from "../lib/limites-image"
+import { authentifierPageMarchand } from "./marchand/garde"
 
 // `@medusajs/framework/http` n'exporte aucun `upload` prêt à l'emploi dans
 // cette version du SDK (vérifié : absent de son `index.js`) — seul le code
@@ -64,6 +65,52 @@ const televerserImage = (
 
 export default defineMiddlewares({
   routes: [
+    {
+      // L'écran de connexion et la déconnexion sont les DEUX seuls chemins du
+      // back-office atteignables sans session — sans quoi personne ne pourrait
+      // jamais s'y connecter. `allowUnauthenticated` est donc indispensable
+      // ici : `allowUnregistered` seul ne couvre que le cas d'une identité
+      // déjà authentifiée mais pas encore rattachée, et un visiteur sans
+      // aucun jeton recevrait `{"message":"Unauthorized"}` au lieu du
+      // formulaire.
+      //
+      // La règle ne fait rien d'autre que peupler `auth_context` quand une
+      // session existe ; c'est le POST de connexion qui décide qui entre.
+      // Le drapeau `i` est aussi indispensable ici que sur la règle générale
+      // ci-dessous : sans lui, `/Marchand/connexion` ne matcherait pas cette
+      // règle, tomberait sous la règle générale (elle, insensible à la casse)
+      // et l'écran de connexion deviendrait inatteignable par une variante de
+      // casse — une boucle de redirection au lieu d'un formulaire.
+      matcher: /^\/marchand\/(connexion|deconnexion)\/?$/i,
+      middlewares: [
+        authenticate("merchant", ["session", "bearer"], {
+          allowUnregistered: true,
+          allowUnauthenticated: true,
+        }),
+      ],
+    },
+    {
+      // Toutes les autres PAGES du back-office. L'authentification y est
+      // strictement celle du framework (voir ./marchand/garde.ts) : la
+      // seule différence est qu'un refus sort en redirection vers l'écran de
+      // connexion, jamais en 401 JSON — une commerçante ne doit pas se
+      // retrouver devant `{"message":"Unauthorized"}`.
+      //
+      // La règle refuse AVANT le routage : une page ajoutée plus tard sous
+      // /marchand/* naît donc fermée même si son auteur oublie d'appeler
+      // `pageMarchandOuRedirection`. C'est ce que vérifient les deux
+      // derniers cas de integration-tests/http/back-office-acces.spec.ts, qui
+      // exigent un 302 — et non un 404 — sur un chemin sans gestionnaire.
+      //
+      // Le drapeau `i` est indispensable : un matcher `RegExp` est utilisé tel
+      // quel par Express (contrairement à un matcher chaîne, qu'Express
+      // compile insensible à la casse par défaut). Sans lui, `/Marchand/...`
+      // ne matcherait aucune règle mais atteindrait quand même la route
+      // Express réelle — le contournement d'authentification exact déjà livré
+      // une fois sur /merchant.
+      matcher: /^\/marchand(?:\/(?!connexion\/?$|deconnexion\/?$).*)?$/i,
+      middlewares: [authentifierPageMarchand],
+    },
     {
       // L'inscription accepte une identité pas encore rattachée à un marchand.
       // On déclare `methods` (pluriel) plutôt que `method` (singulier) parce

@@ -31,7 +31,11 @@ export function marchandEstActif(statut: string | undefined | null): boolean {
 // une erreur d'appelant.
 export const MESSAGE_IDENTITE_NON_RATTACHEE = "Identité non rattachée à un marchand"
 
-type Marchand = Awaited<ReturnType<MerchantModuleService["retrieveMerchant"]>>
+/** Exporté parce que la garde des PAGES du back-office
+ *  (`src/api/marchand/garde.ts`) rend ce type. Le recopier là-bas
+ *  divergerait en silence à la première migration du module marchand : il est
+ *  dérivé de la signature du service, pas écrit à la main. */
+export type Marchand = Awaited<ReturnType<MerchantModuleService["retrieveMerchant"]>>
 
 export type ControleMarchand =
   | { autorise: true; marchand: Marchand }
