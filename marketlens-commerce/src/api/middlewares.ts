@@ -76,11 +76,19 @@ export default defineMiddlewares({
       //
       // La règle ne fait rien d'autre que peupler `auth_context` quand une
       // session existe ; c'est le POST de connexion qui décide qui entre.
-      // Le drapeau `i` est aussi indispensable ici que sur la règle générale
-      // ci-dessous : sans lui, `/Marchand/connexion` ne matcherait pas cette
-      // règle, tomberait sous la règle générale (elle, insensible à la casse)
-      // et l'écran de connexion deviendrait inatteignable par une variante de
-      // casse — une boucle de redirection au lieu d'un formulaire.
+      //
+      // Le drapeau `i` : ce n'est PAS une protection contre une boucle de
+      // redirection, contrairement à ce qui était écrit ici. La règle
+      // générale ci-dessous porte elle aussi le drapeau `i`, donc sa
+      // lookahead négative `(?!connexion\/?$|deconnexion\/?$)` s'applique
+      // aussi à `/Marchand/connexion` et le motif entier échoue : sans `i`
+      // ici, ce chemin ne matcherait AUCUNE des deux règles et atteindrait
+      // directement la route Express (dont le matcher, lui, est insensible à
+      // la casse). L'écran resterait servi — pas de boucle — mais par un
+      // chemin qui n'a traversé aucun intergiciel, donc sans `auth_context`
+      // peuplé. Le drapeau reste la bonne hygiène : les deux règles jumelles
+      // doivent partager exactement la même sensibilité à la casse, sous
+      // peine de laisser un interstice entre elles.
       matcher: /^\/marchand\/(connexion|deconnexion)\/?$/i,
       middlewares: [
         authenticate("merchant", ["session", "bearer"], {
@@ -90,17 +98,19 @@ export default defineMiddlewares({
       ],
     },
     {
-      // Toutes les autres PAGES du back-office. L'authentification y est
-      // strictement celle du framework (voir ./marchand/garde.ts) : la
-      // seule différence est qu'un refus sort en redirection vers l'écran de
-      // connexion, jamais en 401 JSON — une commerçante ne doit pas se
-      // retrouver devant `{"message":"Unauthorized"}`.
+      // Toutes les autres PAGES du back-office. `authentifierPageMarchand`
+      // (voir ./marchand/garde.ts) y porte TOUT le contrôle d'accès :
+      // l'authentification du framework, puis `marchandActifOuRefus`. Un
+      // refus sort en redirection vers l'écran de connexion, jamais en 401
+      // JSON — une commerçante ne doit pas se retrouver devant
+      // `{"message":"Unauthorized"}`.
       //
       // La règle refuse AVANT le routage : une page ajoutée plus tard sous
-      // /marchand/* naît donc fermée même si son auteur oublie d'appeler
-      // `pageMarchandOuRedirection`. C'est ce que vérifient les deux
-      // derniers cas de integration-tests/http/back-office-acces.spec.ts, qui
-      // exigent un 302 — et non un 404 — sur un chemin sans gestionnaire.
+      // /marchand/* naît donc fermée sans que son auteur ait quoi que ce soit
+      // à appeler — elle reçoit le marchand déjà résolu sur `req.marchand`
+      // (type `RequetePageMarchand`). C'est ce que vérifient deux cas de
+      // integration-tests/http/back-office-acces.spec.ts, qui exigent un 302
+      // — et non un 404 — sur un chemin sans gestionnaire.
       //
       // Le drapeau `i` est indispensable : un matcher `RegExp` est utilisé tel
       // quel par Express (contrairement à un matcher chaîne, qu'Express

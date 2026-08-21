@@ -1,5 +1,5 @@
 import { medusaIntegrationTestRunner } from "@medusajs/test-utils"
-import { Modules } from "@medusajs/framework/utils"
+import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
 import jwt from "jsonwebtoken"
 import { MERCHANT_MODULE } from "../../src/modules/merchant"
 
@@ -56,6 +56,36 @@ medusaIntegrationTestRunner({
       const f = formulaire({ email, motdepasse: MOT_DE_PASSE })
       const r = await api.post("/marchand/connexion", f.corps, f.options)
       return { reponse: r, cookie: cookieDe(r) }
+    }
+
+    /**
+     * Remplace, le temps d'un appel, la réponse du module d'authentification.
+     *
+     * C'est le SEUL montage honnête pour une panne amont : le module avale
+     * toute exception et la rend sous forme de `{ success: false, error }`
+     * (node_modules/@medusajs/auth/dist/services/auth-module.js, `authenticate`
+     * — `catch (error) { return { success: false, error: error.message } }`).
+     * Couper Postgres pendant un test n'est ni reproductible ni isolable ;
+     * la seule chose que la route peut observer, elle, est bien ce contrat-là.
+     */
+    const avecAuthentification = async (
+      resultat: Record<string, unknown>,
+      corps: () => Promise<void>
+    ) => {
+      const authModule: any = getContainer().resolve(Modules.AUTH)
+      const espion = jest
+        .spyOn(authModule, "authenticate")
+        .mockResolvedValue(resultat as never)
+      try {
+        await corps()
+      } finally {
+        espion.mockRestore()
+      }
+    }
+
+    const posterConnexion = async (email: string, motdepasse: string) => {
+      const f = formulaire({ email, motdepasse })
+      return await api.post("/marchand/connexion", f.corps, f.options)
     }
 
     describe("Accès au back-office marchand", () => {
@@ -240,9 +270,9 @@ medusaIntegrationTestRunner({
       })
 
       // Corollaire du test précédent : l'intergiciel refuse AVANT le routage,
-      // y compris en minuscules. Sans cela, une page ajoutée plus tard sous
-      // /marchand/* et dont l'auteur oublierait `pageMarchandOuRedirection`
-      // serait entièrement publique.
+      // y compris en minuscules. C'est ce qui rend l'oubli impossible par
+      // construction — une page ajoutée plus tard sous /marchand/* n'a aucune
+      // garde à appeler, elle reçoit `req.marchand` déjà résolu.
       it("refuse une page inconnue du back-office avant même de la router", async () => {
         const r = await api.get("/marchand/une-page-inexistante", {
           maxRedirects: 0,
@@ -250,6 +280,209 @@ medusaIntegrationTestRunner({
         })
         expect(r.status).toBe(302)
         expect(r.headers.location).toBe("/marchand/connexion")
+      })
+
+      // Le cas le plus fréquent en pratique : quelqu'un s'inscrit par
+      // /auth/merchant/emailpass/register puis abandonne avant
+      // /merchant/register. L'identité existe, le mot de passe est bon,
+      // `app_metadata` est vide — et rien ne doit s'ouvrir.
+      it("refuse une identité inscrite mais jamais rattachée à une boutique", async () => {
+        const email = "orpheline-bo@marketlens.test"
+        const insc = await api.post("/auth/merchant/emailpass/register", {
+          email,
+          password: MOT_DE_PASSE,
+        })
+        expect(insc.status).toBe(200)
+        // Aucun appel à /merchant/register : `app_metadata` reste vide.
+
+        const { reponse, cookie } = await seConnecter(email)
+        expect(reponse.status).toBe(302)
+        expect(reponse.headers.location).toBe(
+          "/marchand/connexion?erreur=identifiants"
+        )
+
+        const page = await api.get("/marchand", {
+          headers: cookie ? { cookie } : {},
+          maxRedirects: 0,
+          validateStatus: () => true,
+        })
+        expect(page.status).toBe(302)
+        expect(page.headers.location).toBe("/marchand/connexion")
+      })
+
+      // Les deux tests précédents écrivent chacun le littéral attendu : rien
+      // ne verrouille leur ÉGALITÉ, qui est pourtant la propriété qui compte
+      // (ne pas transformer l'écran en oracle d'existence de comptes). Ce
+      // test-ci ne regarde aucun littéral : il compare les deux redirections
+      // l'une à l'autre.
+      it("rend la même redirection pour une adresse inconnue et pour une identité d'un autre acteur", async () => {
+        const inconnue = await posterConnexion(
+          "personne-nexiste-pas-bo@marketlens.test",
+          MOT_DE_PASSE
+        )
+        expect(inconnue.status).toBe(302)
+
+        const email = "cliente2-bo@marketlens.test"
+        const insc = await api.post("/auth/customer/emailpass/register", {
+          email,
+          password: MOT_DE_PASSE,
+        })
+        const charge = jwt.decode(insc.data.token) as Record<string, any>
+        const authModule: any = getContainer().resolve(Modules.AUTH)
+        await authModule.updateAuthIdentities({
+          id: charge.auth_identity_id,
+          app_metadata: { customer_id: "cus_faux_back_office_2" },
+        })
+
+        const autreActeur = await posterConnexion(email, MOT_DE_PASSE)
+        expect(autreActeur.status).toBe(inconnue.status)
+        expect(autreActeur.headers.location).toBe(inconnue.headers.location)
+      })
+
+      // Anti-fixation de session. `req.session.regenerate()` est la seule
+      // propriété de sécurité de cet écran qu'aucune assertion ne couvrait :
+      // on pouvait retirer l'appel sans qu'un seul test ne rougisse.
+      // On rejoue donc la connexion EN PRÉSENTANT le cookie de la première :
+      // sans régénération, express-session réutilise le même identifiant et
+      // un identifiant obtenu AVANT la connexion resterait valable APRÈS.
+      it("change l'identifiant de session à chaque connexion", async () => {
+        const email = "fixation-bo@marketlens.test"
+        await inscrireMarchand(
+          email,
+          "Étal fixation",
+          "etal-bo-fixation",
+          "22990000065"
+        )
+
+        const premiere = await seConnecter(email)
+        expect(premiere.reponse.status).toBe(302)
+        expect(premiere.cookie).toBeTruthy()
+
+        const f = formulaire({ email, motdepasse: MOT_DE_PASSE })
+        const seconde = await api.post("/marchand/connexion", f.corps, {
+          ...f.options,
+          headers: { ...f.options.headers, cookie: premiere.cookie },
+        })
+        expect(seconde.status).toBe(302)
+
+        const cookieSeconde = cookieDe(seconde)
+        expect(cookieSeconde).toBeTruthy()
+        expect(cookieSeconde).not.toBe(premiere.cookie)
+      })
+
+      // Contrainte globale du lot : une panne amont sort en 5xx, jamais en
+      // 4xx accusant la saisie de la commerçante. Le module
+      // d'authentification avale les exceptions et les rend indistinctement
+      // de mots de passe faux ; c'est donc à la route de trier.
+      it("sort en 5xx, et non en « mot de passe incorrect », quand l'authentification tombe en panne", async () => {
+        await avecAuthentification(
+          {
+            success: false,
+            error: "terminating connection due to administrator command",
+          },
+          async () => {
+            const r = await posterConnexion(
+              "panne-bo@marketlens.test",
+              MOT_DE_PASSE
+            )
+            expect(r.status).toBe(503)
+            expect(r.headers.location).toBeUndefined()
+          }
+        )
+      })
+
+      // Un défi MFA NON RÉSOLU rend `{ success: true, authIdentity }` :
+      // `applyMfaRequirement_` (auth-module.js) le pose sans rien avoir
+      // vérifié, et la route du framework se contente d'émettre un jeton
+      // SANS acteur. Un `success && authIdentity` naïf poserait ici une
+      // session pleinement privilégiée en sautant le second facteur.
+      // Idem pour `location`, qui signale une redirection vers un
+      // fournisseur externe : l'identité n'est pas encore prouvée.
+      it("refuse la connexion, distinctement d'identifiants faux, si le module réclame un second facteur ou une redirection", async () => {
+        await avecAuthentification(
+          {
+            success: true,
+            mfaChallenge: { id: "amc_faux" },
+            authIdentity: {
+              id: "authid_mfa",
+              app_metadata: { merchant_id: "mer_quelconque" },
+            },
+          },
+          async () => {
+            const r = await posterConnexion(
+              "mfa-bo@marketlens.test",
+              MOT_DE_PASSE
+            )
+            expect(r.status).toBe(500)
+            expect(r.headers.location).toBeUndefined()
+            const page = await api.get("/marchand", {
+              headers: { cookie: cookieDe(r) },
+              maxRedirects: 0,
+              validateStatus: () => true,
+            })
+            expect(page.status).toBe(302)
+            expect(page.headers.location).toBe("/marchand/connexion")
+          }
+        )
+
+        await avecAuthentification(
+          { success: true, location: "https://ailleurs.test/oauth" },
+          async () => {
+            const r = await posterConnexion(
+              "oauth-bo@marketlens.test",
+              MOT_DE_PASSE
+            )
+            expect(r.status).toBe(500)
+            expect(r.headers.location).toBeUndefined()
+          }
+        )
+      })
+
+      // Jumeau du précédent, pour la vérification d'adresse e-mail. Le
+      // framework la fait respecter par `validateVerification`
+      // (node_modules/@medusajs/medusa/dist/api/auth/utils/validate-verification.js),
+      // appelé depuis `generateJwtTokenWithChecks` — donc uniquement sur la
+      // route `/auth/<acteur>/<fournisseur>`. Cet écran-ci ne passe pas par
+      // là : sans ce contrôle, activer `authVerificationsPerActor` ferait
+      // respecter la vérification côté API et l'ignorer complètement côté
+      // back-office.
+      //
+      // La configuration est modifiée le temps du test puis restaurée : c'est
+      // le seul moyen d'observer un chemin qu'aucun réglage du dépôt
+      // n'emprunte aujourd'hui — et c'est précisément parce qu'il est inerte
+      // qu'il fallait l'écrire avant qu'il ne cesse de l'être.
+      it("refuse la connexion si une vérification d'e-mail est exigée pour les marchandes", async () => {
+        const email = "verif-bo@marketlens.test"
+        await inscrireMarchand(
+          email,
+          "Étal vérification",
+          "etal-bo-verification",
+          "22990000066"
+        )
+
+        const config: any = getContainer().resolve(
+          ContainerRegistrationKeys.CONFIG_MODULE
+        )
+        const initial = config.projectConfig.http.authVerificationsPerActor
+        config.projectConfig.http.authVerificationsPerActor = {
+          merchant: [{ entity_type: "email", auth_provider: "emailpass" }],
+        }
+
+        try {
+          const r = await posterConnexion(email, MOT_DE_PASSE)
+          expect(r.status).toBe(500)
+          expect(r.headers.location).toBeUndefined()
+
+          const page = await api.get("/marchand", {
+            headers: { cookie: cookieDe(r) },
+            maxRedirects: 0,
+            validateStatus: () => true,
+          })
+          expect(page.status).toBe(302)
+          expect(page.headers.location).toBe("/marchand/connexion")
+        } finally {
+          config.projectConfig.http.authVerificationsPerActor = initial
+        }
       })
     })
   },

@@ -1,12 +1,15 @@
-import { AuthenticatedMedusaRequest, MedusaResponse } from "@medusajs/framework/http"
+import { MedusaResponse } from "@medusajs/framework/http"
 import { html } from "../../lib/html"
 import { page } from "../../lib/pages/layout"
-import { pageMarchandOuRedirection } from "./garde"
+import { RequetePageMarchand } from "./garde"
 import { CatalogueDuMarchand, cataloguesDuMarchand } from "../merchant/catalogues/scope"
 
-export const GET = async (req: AuthenticatedMedusaRequest, res: MedusaResponse) => {
-  const marchand = await pageMarchandOuRedirection(req, res, "GET /marchand")
-  if (!marchand) return
+// Aucune garde à appeler ici, et aucune sortie anticipée à ne pas oublier :
+// `authentifierPageMarchand` a déjà refusé — avant le routage — tout ce qui
+// n'est pas un marchand actif, et a posé le marchand résolu sur la requête.
+// `req.marchand` est non nullable (voir `RequetePageMarchand`).
+export const GET = async (req: RequetePageMarchand, res: MedusaResponse) => {
+  const marchand = req.marchand
 
   const catalogues = await cataloguesDuMarchand(req.scope, marchand.id)
   const brouillons = catalogues.filter((c) => c.status !== "published")
