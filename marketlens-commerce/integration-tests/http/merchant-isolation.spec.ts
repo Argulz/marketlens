@@ -348,6 +348,51 @@ medusaIntegrationTestRunner({
           .catch((e) => e.response)
         expect(vitrineApres.status).toBe(404)
         expect(vitrineApres.data.message).toBe("Catalogue introuvable")
+
+        // La vitrine HTML (/c/<handle>) applique les mêmes règles que la route
+        // JSON, mais par un chemin distinct : elle vit hors du namespace
+        // /store, lit les données côté serveur et rend une page plutôt qu'un
+        // objet. Sans ces assertions, la suspension pourrait être opposable au
+        // JSON et inopérante sur la page que le public voit réellement.
+        const pageApres = await api.get(`/c/${publie.handle}`).catch((e) => e.response)
+        expect(pageApres.status).toBe(404)
+        // Rien du marchand ni du catalogue ne doit transparaître : une page de
+        // refus qui nommerait la boutique confirmerait son existence et sa
+        // suspension à n'importe quel visiteur.
+        expect(pageApres.data).not.toContain("etal-awa")
+        expect(pageApres.data).not.toContain("Étal publié")
+      })
+
+      it("la vitrine HTML sert un catalogue publié et refuse un brouillon par la même page", async () => {
+        const nafi = await inscrireMarchand(api, "nafi@marketlens.test", "etal-nafi", "22990000053")
+
+        const publie = await analyserPhoto(api, nafi.jeton, "Étal de Nafi")
+        const brouillon = await analyserPhoto(api, nafi.jeton, "Étal en attente")
+
+        // Un brouillon est indiscernable d'un handle inexistant : même statut,
+        // même page, aucun indice qu'il existe et attend une publication.
+        const avant = await api.get(`/c/${publie.handle}`).catch((e) => e.response)
+        const inconnu = await api.get("/c/nexiste-pas-du-tout").catch((e) => e.response)
+        expect(avant.status).toBe(404)
+        expect(inconnu.status).toBe(404)
+        expect(avant.data).toBe(inconnu.data)
+
+        expect((await publierCatalogue(api, nafi.jeton, publie)).status).toBe(200)
+
+        const page = await api.get(`/c/${publie.handle}`)
+        expect(page.status).toBe(200)
+        expect(page.headers["content-type"]).toContain("text/html")
+        expect(page.data).toContain("Étal etal-nafi")
+        expect(page.data).toContain("Tomates")
+        // L'image ANNOTÉE est celle que le marchand a validée ; l'image source
+        // n'est jamais servie, pas plus ici que sur la route JSON.
+        expect(page.data).toMatch(/<img[^>]+src="[^"]+"/)
+
+        // Le brouillon du même marchand actif reste introuvable après la
+        // publication de son voisin : c'est le statut du catalogue qui décide,
+        // pas celui du marchand.
+        const resteBrouillon = await api.get(`/c/${brouillon.handle}`).catch((e) => e.response)
+        expect(resteBrouillon.status).toBe(404)
       })
 
       it("une identité dont le marchand a été supprimé reçoit 401, jamais une liste vide", async () => {
