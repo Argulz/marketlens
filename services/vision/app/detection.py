@@ -250,7 +250,8 @@ class ProductDetector:
                     ) from e
                 derniere_erreur = e
                 logger.warning(
-                    f"Tentative {tentative + 1}/{self.max_retries} échouée: {e}"
+                    f"Tentative {tentative + 1}/{self.max_retries} échouée: "
+                    f"{type(e).__name__}: {e}"
                 )
                 continue
             except (httpx.HTTPError, asyncio.TimeoutError,
@@ -259,7 +260,8 @@ class ProductDetector:
                 # avalerait une erreur de programmation et la réessaierait.
                 derniere_erreur = e
                 logger.warning(
-                    f"Tentative {tentative + 1}/{self.max_retries} échouée: {e}"
+                    f"Tentative {tentative + 1}/{self.max_retries} échouée: "
+                    f"{type(e).__name__}: {e}"
                 )
                 continue
 

@@ -176,6 +176,20 @@ def test_reessaie_sur_une_coupure_reseau(gemini):
     assert len(gemini.appels()) == 2
 
 
+def test_le_journal_nomme_le_type_de_panne_meme_sans_message(gemini, caplog):
+    """Constaté en préparation de démonstration : le journal affichait
+    « Tentative 2/3 échouée: » suivi de rien du tout. Plusieurs erreurs de
+    transport de httpx se construisent sans message — `str(e)` est alors la
+    chaîne vide, et la ligne de journal ne dit plus RIEN de la panne : ni sa
+    nature, ni sa couche. Le type de l'exception, lui, est toujours là."""
+    gemini.programmer(httpx.ReadError(""), REPONSE_OK)
+    with caplog.at_level("WARNING"):
+        asyncio.run(detecteur().detect(JPEG))
+    lignes = [e.getMessage() for e in caplog.records if "Tentative" in e.getMessage()]
+    assert lignes, "aucune tentative journalisée"
+    assert "ReadError" in lignes[0], f"panne anonyme dans le journal : {lignes[0]!r}"
+
+
 class FauxModelesQuiDorment:
     """Gemini qui ne répond jamais dans le délai imparti — simule un
     service amont accroché plutôt qu'en échec explicite."""
