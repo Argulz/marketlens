@@ -166,3 +166,122 @@ export async function catalogueDuMarchand(
   const catalogues = await cataloguesDuMarchand(container, merchantId)
   return catalogues.find((c) => c.id === catalogueId) ?? null
 }
+
+export type ZoneDetail = {
+  id: string
+  x: number
+  y: number
+  width: number
+  height: number
+  detected_label: string
+  detected_category: string | null
+  product: {
+    id: string
+    title: string
+    variants: { id: string; title: string; prix: number | null }[]
+  } | null
+}
+
+export type DetailCatalogue = {
+  id: string
+  handle: string
+  title: string
+  status: string
+  source_image_url: string
+  annotated_image_url: string | null
+  zones: ZoneDetail[]
+}
+
+/** Lecture directe du prix posé sur la variante, sans passer par le prix
+ *  CALCULÉ (celui qui tiendrait compte d'une région, d'une liste de prix
+ *  promotionnelle, etc.). Limite assumée et documentée dans la spec : ça
+ *  tient tant qu'il n'existe qu'une devise et aucune liste de prix. Le jour
+ *  où une promotion ou une deuxième devise apparaît, cette lecture posée
+ *  devient fausse et il faudra passer par le prix calculé avec un contexte
+ *  de région — pas rajouter un filtre de plus ici. */
+function prixXof(
+  prix: { amount: number; currency_code: string }[] | undefined
+): number | null {
+  return prix?.find((p) => p.currency_code === "xof")?.amount ?? null
+}
+
+/**
+ * Détail complet d'UN catalogue du marchand porté par le jeton, zones et
+ * produits liés compris. Le contrôle d'appartenance passe entièrement par
+ * `catalogueDuMarchand` : c'est le seul endroit qui décide qui voit quoi, et
+ * il rend `null` aussi bien pour un catalogue inexistant que pour celui d'un
+ * autre marchand — les deux cas restent indiscernables jusqu'ici.
+ */
+export async function detailCatalogueDuMarchand(
+  container: MedusaContainer,
+  merchantId: string,
+  catalogueId: string
+): Promise<DetailCatalogue | null> {
+  const possede = await catalogueDuMarchand(container, merchantId, catalogueId)
+  if (!possede) return null
+
+  const query = container.resolve(ContainerRegistrationKeys.QUERY)
+  const { data } = await query.graph({
+    entity: "visual_catalogue",
+    fields: [
+      "id",
+      "handle",
+      "title",
+      "status",
+      "source_image_url",
+      "annotated_image_url",
+      "zones.id",
+      "zones.x",
+      "zones.y",
+      "zones.width",
+      "zones.height",
+      "zones.detected_label",
+      "zones.detected_category",
+      // Champ SINGULIER (`product`, pas `products`) : une zone porte au plus
+      // un produit publié. Le pluriel est accepté sans erreur par
+      // query.graph et ne renvoie simplement rien — piège vérifié sur cette
+      // base, voir le même avertissement sur le lien marchand→catalogue.
+      "zones.product.id",
+      "zones.product.title",
+      "zones.product.variants.id",
+      "zones.product.variants.title",
+      "zones.product.variants.prices.amount",
+      "zones.product.variants.prices.currency_code",
+    ],
+    filters: { id: catalogueId },
+  })
+
+  const c = data[0] as any
+  if (!c) return null
+
+  return {
+    id: c.id,
+    handle: c.handle,
+    title: c.title,
+    status: c.status,
+    source_image_url: c.source_image_url,
+    annotated_image_url: c.annotated_image_url ?? null,
+    zones: (c.zones ?? []).map((z: any) => ({
+      id: z.id,
+      x: z.x,
+      y: z.y,
+      width: z.width,
+      height: z.height,
+      detected_label: z.detected_label,
+      // `null`, jamais absent : une zone peut ne porter aucune catégorie
+      // détectée, tout comme elle peut ne porter aucun produit.
+      detected_category: z.detected_category ?? null,
+      product: z.product
+        ? {
+            id: z.product.id,
+            title: z.product.title,
+            variants: (z.product.variants ?? []).map((v: any) => ({
+              id: v.id,
+              title: v.title,
+              prix: prixXof(v.prices),
+            })),
+          }
+        : null,
+    })),
+  }
+}
