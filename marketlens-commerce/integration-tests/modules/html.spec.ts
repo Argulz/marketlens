@@ -41,4 +41,16 @@ describe("Gabarits auto-échappants", () => {
     expect(rendre(html`<p>${null}</p>`)).toBe("<p></p>")
     expect(rendre(html`<p>${undefined}</p>`)).toBe("<p></p>")
   })
+
+  it("n'accepte pas un objet forgé portant une clé « __html » comme HTML sûr", () => {
+    // Un corps de requête désérialisé (JSON, ou `qs`/le parseur de formulaire
+    // via une notation à crochets comme `champ[__html]=<script>...`) peut
+    // produire un objet littéral avec une clé `__html` — ce n'est pas pour
+    // autant un fragment produit par `html`/`brut`. Il doit être échappé
+    // comme n'importe quelle autre valeur, jamais inséré tel quel.
+    const forge = JSON.parse('{"__html":"<script>alert(1)</script>"}')
+    const sortie = rendre(html`<div>${forge}</div>`)
+    expect(sortie).not.toContain("<script>alert(1)</script>")
+    expect(sortie).not.toContain("<script>")
+  })
 })
