@@ -40,7 +40,12 @@ type CatalogueDeTest = {
 async function publierUnCatalogue(
   api: any,
   handle: string,
-  phone: string
+  phone: string,
+  // Nombre de zones réellement MISES EN VENTE. Deux par défaut ; une seule
+  // laisse la seconde zone détectée sans aucun produit — l'état qu'une
+  // commerçante obtient dès qu'elle ne tarife pas tout son étal, et que
+  // l'écran de correction affichera pourtant en ligne.
+  zonesAPublier: 1 | 2 = 2
 ): Promise<CatalogueDeTest> {
   const email = `${handle}@marketlens.test`
   const inscription = await api.post("/auth/merchant/emailpass/register", {
@@ -77,7 +82,7 @@ async function publierUnCatalogue(
         items: [
           { zone_id: zones[0].id, label: "Pagne wax", price: "5000", quantity: 3, colors: [], sizes: [] },
           { zone_id: zones[1].id, label: "Tomates fraîches", price: "500", quantity: 10, colors: [], sizes: [] },
-        ],
+        ].slice(0, zonesAPublier),
       },
       { headers: { authorization: `Bearer ${jeton}` } }
     )
@@ -238,6 +243,40 @@ medusaIntegrationTestRunner({
         // l'orchestrateur.
         expect(r.data.avertissement).toContain("photo d'origine")
         expect(await prixDeLaZone(api, m, m.zones[0].id)).toBe(3000)
+      })
+
+      it("refuse en français la correction d'une zone jamais mise en vente", async () => {
+        // Contrainte 9 : une zone peut ne porter aucun produit. L'écran de
+        // correction affiche UNE LIGNE PAR ZONE ; s'il soumet toutes ses
+        // lignes, une seule zone jamais tarifée doit faire échouer la
+        // correction entière en 400 français — pas en panne technique, et
+        // pas à moitié.
+        const m = await publierUnCatalogue(api, "etal-zone-muette", "22990000106", 1)
+        const avant = await urlAnnotee(api, m)
+
+        const r = await api
+          .patch(
+            `/merchant/catalogues/${m.catalogueId}/items`,
+            {
+              items: [
+                { zone_id: m.zones[0].id, price: "7777", quantity: 4 },
+                { zone_id: m.zones[1].id, price: "1000", quantity: 1 },
+              ],
+            },
+            { headers: { authorization: `Bearer ${m.jeton}` } }
+          )
+          .catch((e: any) => e.response)
+
+        expect(r.status).toBe(400)
+        expect(r.data.message).toContain("n'a pas été mise en vente")
+        // Le libellé de LA zone fautive, pour que la commerçante sache
+        // laquelle retirer de sa correction.
+        expect(r.data.message).toContain(m.zones[1].detected_label)
+
+        // Le refus tombe AVANT toute écriture : la zone valide du même envoi
+        // garde son prix de publication, et l'image n'a pas été redessinée.
+        expect(await prixDeLaZone(api, m, m.zones[0].id)).toBe(5000)
+        expect(await urlAnnotee(api, m)).toBe(avant)
       })
 
       it("refuse en français une quantité invalide, sans toucher au prix", async () => {
