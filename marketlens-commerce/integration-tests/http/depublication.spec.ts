@@ -173,6 +173,29 @@ medusaIntegrationTestRunner({
         expect(vitrine.status).toBe(404)
       })
 
+      it("refuse en français de mettre en ligne un catalogue jamais tarifé", async () => {
+        // Chemin NOMINAL, pas garde défensive : la commerçante analyse une
+        // photo, ne tarife rien, et l'écran lui montre « Remettre en ligne »
+        // dès que le statut n'est pas `published`.
+        const m = await analyserUnCatalogue(api, "etal-jamais-tarife", "22990000115")
+
+        const r = await api
+          .post(
+            `/merchant/catalogues/${m.catalogueId}/republish`,
+            {},
+            { headers: { authorization: `Bearer ${m.jeton}` } }
+          )
+          .catch((e: any) => e.response)
+
+        expect(r.status).toBe(409)
+        // Un catalogue qui n'a JAMAIS été en ligne ne peut pas y être
+        // « remis » : le message doit dire ce qu'il faut faire, pas décrire
+        // un passé qui n'a pas eu lieu.
+        expect(r.data.message).not.toMatch(/remettre|remise en ligne/i)
+        expect(r.data.message).toMatch(/aucun produit/)
+        expect(await statutCatalogue(api, m)).toBe("draft")
+      })
+
       it("distingue la photo définitivement perdue d'une panne de stockage", async () => {
         const m = await publierUnCatalogue(api, "etal-cycle-stockage", "22990000114")
         const enTete = { authorization: `Bearer ${m.jeton}` }

@@ -72,13 +72,15 @@ export const POST = async (req: AuthenticatedMedusaRequest, res: MedusaResponse)
   const produits = produitsAAnnoter(detail)
 
   if (produits.length === 0) {
-    // Republier un catalogue sans aucun produit servirait une vitrine vide,
-    // et la publication elle-même refuse déjà ce cas. Inatteignable par le
-    // seul cycle publier → dépublier → republier (publier exige au moins un
-    // article) : ce refus couvre un catalogue dont les produits auraient
-    // disparu par un autre chemin.
+    // Chemin NOMINAL, et non garde défensive : une commerçante qui analyse
+    // une photo sans rien tarifer obtient exactement cet état, et l'écran
+    // lui montre ce bouton dès que le statut n'est pas `published`. Le
+    // message doit donc dire quoi faire — parler de « remettre » en ligne un
+    // catalogue qui n'y a jamais été serait faux, et la laisserait chercher
+    // une vitrine qu'elle n'a jamais eue.
     return res.status(409).json({
-      message: "Ce catalogue n'a aucun produit à remettre en ligne",
+      message:
+        "Ce catalogue n'a aucun produit en vente : indiquez les prix de votre étal pour le mettre en ligne.",
     })
   }
 
