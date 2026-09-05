@@ -227,7 +227,16 @@ medusaIntegrationTestRunner({
         // Le prix EST à jour ; c'est seulement l'image qui n'a pas suivi.
         // Laisser croire que rien n'a changé serait le pire comportement.
         expect(r.status).toBe(200)
-        expect(r.data.avertissement).toContain("image")
+        // Le libellé PROPRE à cette branche, pas le mot « image » que les
+        // DEUX avertissements de la route contiennent : sans cela, le test
+        // resterait vert si `lireImageSourceStep` ne vérifiait plus
+        // `source_image_id`, si `ErreurImageSourceIndisponible` ne posait
+        // plus son `name`, ou si la comparaison sur `e?.name` était fausse —
+        // le chemin générique aboutirait au même 200 (aucun serveur de
+        // vision factice n'est ouvert ici). C'est ce libellé qui prouve le
+        // mécanisme `.name`, seule chose qui survit à la sérialisation de
+        // l'orchestrateur.
+        expect(r.data.avertissement).toContain("photo d'origine")
         expect(await prixDeLaZone(api, m, m.zones[0].id)).toBe(3000)
       })
 
