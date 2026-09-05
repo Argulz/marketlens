@@ -1,7 +1,14 @@
 import { medusaIntegrationTestRunner } from "@medusajs/test-utils"
+import { Modules } from "@medusajs/framework/utils"
 import { VISUAL_CATALOG_MODULE } from "../../src/modules/visual-catalog"
 import { servirVisionFactice } from "./helpers/vision-stub"
-import { CatalogueDeTest, publierUnCatalogue } from "./helpers/catalogue-publie"
+import {
+  CatalogueDeTest,
+  analyserUnCatalogue,
+  detailCatalogue,
+  etatCommercial,
+  publierUnCatalogue,
+} from "./helpers/catalogue-publie"
 
 jest.setTimeout(90 * 1000)
 
@@ -11,20 +18,42 @@ jest.setTimeout(90 * 1000)
  *  `query.graph` n'est garanti nulle part — un test qui dépendrait de cet
  *  ordre échouerait pour une raison sans rapport avec ce qu'il mesure. */
 async function idsProduits(api: any, m: CatalogueDeTest): Promise<string[]> {
-  const reponse = await api.get(`/merchant/catalogues/${m.catalogueId}`, {
-    headers: { authorization: `Bearer ${m.jeton}` },
-  })
-  return reponse.data.catalogue.zones
+  return (await detailCatalogue(api, m)).zones
     .filter((z: any) => z.product)
     .map((z: any) => z.product.id)
     .sort()
 }
 
 async function statutCatalogue(api: any, m: CatalogueDeTest): Promise<string> {
-  const reponse = await api.get(`/merchant/catalogues/${m.catalogueId}`, {
-    headers: { authorization: `Bearer ${m.jeton}` },
-  })
-  return reponse.data.catalogue.status
+  return (await detailCatalogue(api, m)).status
+}
+
+/**
+ * Coupe le STOCKAGE le temps d'un appel : `getAsBuffer` échoue avec un code
+ * errno qui n'est pas `ENOENT`.
+ *
+ * C'est la panne TRANSITOIRE — volume démonté, disque saturé, seau distant
+ * injoignable — par opposition au fichier définitivement effacé. La photo de
+ * la commerçante est intacte ; seul le stockage ne répond pas. Aucun autre
+ * moyen de produire cet état : il n'existe pas de fichier dont la lecture
+ * échoue « temporairement » sur commande.
+ */
+async function pendantUnePanneDeStockage<T>(
+  getContainer: any,
+  action: () => Promise<T>
+): Promise<T> {
+  const fichiers: any = getContainer().resolve(Modules.FILE)
+  const original = fichiers.getAsBuffer
+  fichiers.getAsBuffer = async () => {
+    const panne: any = new Error("EIO: i/o error, read")
+    panne.code = "EIO"
+    throw panne
+  }
+  try {
+    return await action()
+  } finally {
+    fichiers.getAsBuffer = original
+  }
 }
 
 medusaIntegrationTestRunner({
@@ -143,6 +172,65 @@ medusaIntegrationTestRunner({
         const vitrine = await api.get(`/c/${m.handle}`).catch((e: any) => e.response)
         expect(vitrine.status).toBe(404)
       })
+
+      it("distingue la photo définitivement perdue d'une panne de stockage", async () => {
+        const m = await publierUnCatalogue(api, "etal-cycle-stockage", "22990000114")
+        const enTete = { authorization: `Bearer ${m.jeton}` }
+        expect(
+          (
+            await api.post(
+              `/merchant/catalogues/${m.catalogueId}/unpublish`,
+              {},
+              { headers: enTete }
+            )
+          ).status
+        ).toBe(200)
+
+        const source = (await detailCatalogue(api, m)).source_image_id
+        expect(source).toBeTruthy()
+        const service: any = getContainer().resolve(VISUAL_CATALOG_MODULE)
+
+        // Le serveur d'annotation répond : ainsi tout échec observé plus bas
+        // vient bien de la lecture de la photo, et non d'une vision absente.
+        const vision = await servirVisionFactice({ annotateSeulement: true })
+        try {
+          // 1. Le FICHIER a disparu — défaut permanent : aucune reprise ne le
+          //    ramènera, et reprendre une photo est le seul conseil utile.
+          await service.updateVisualCatalogues({
+            id: m.catalogueId,
+            source_image_id: "fichier-efface-par-le-menage.jpg",
+          })
+          const disparue = await api
+            .post(`/merchant/catalogues/${m.catalogueId}/republish`, {}, { headers: enTete })
+            .catch((e: any) => e.response)
+          expect(disparue.status).toBe(409)
+          expect(disparue.data.message).toMatch(/photo d'origine/)
+
+          // 2. Le fichier est INTACT ; c'est le stockage qui ne répond pas.
+          await service.updateVisualCatalogues({
+            id: m.catalogueId,
+            source_image_id: source,
+          })
+          const panne: any = await pendantUnePanneDeStockage(getContainer, () =>
+            api
+              .post(`/merchant/catalogues/${m.catalogueId}/republish`, {}, { headers: enTete })
+              .catch((e: any) => e.response)
+          )
+          // Une panne amont sort en 5xx, jamais en 4xx accusant la saisie.
+          expect(panne.status).toBe(500)
+          // Et surtout pas le conseil de reprendre une photo : la photo est
+          // là, la renvoyer serait un travail parfaitement inutile.
+          expect(panne.data.message).not.toMatch(/photo/i)
+          expect(panne.data.message).not.toMatch(/Error|EIO|getAsBuffer|source_image_id/)
+        } finally {
+          await vision.fermer()
+        }
+
+        // Dans les deux cas le catalogue reste hors ligne : jamais de vitrine
+        // servie avec une image qui n'a pas pu être régénérée.
+        expect(await statutCatalogue(api, m)).toBe("draft")
+      })
+
     })
   },
 })

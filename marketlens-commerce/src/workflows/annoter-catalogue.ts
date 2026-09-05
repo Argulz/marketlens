@@ -25,11 +25,16 @@ import VisualCatalogModuleService from "../modules/visual-catalog/service"
  */
 export const NOM_ERREUR_IMAGE_SOURCE_INDISPONIBLE = "ErreurImageSourceIndisponible"
 
-/** La photo d'origine du catalogue n'est plus lisible : soit le catalogue
- *  date d'avant la colonne `source_image_id` (28 catalogues du corpus,
- *  démonstrations), soit le fichier a disparu du stockage. Ce n'est ni une
- *  faute de la commerçante ni une panne du service de vision : c'est un
- *  état, que chaque appelant traduit à sa façon. */
+/** La photo d'origine du catalogue est DÉFINITIVEMENT perdue : soit le
+ *  catalogue date d'avant la colonne `source_image_id` (28 catalogues du
+ *  corpus, démonstrations), soit le fichier a été effacé du stockage. Ce
+ *  n'est ni une faute de la commerçante ni une panne du service de vision :
+ *  c'est un état, que chaque appelant traduit à sa façon.
+ *
+ *  Ce que cette erreur ne dit PAS : « le stockage n'a pas répondu ». Une
+ *  panne transitoire remonte telle quelle depuis `lireImageSourceStep` pour
+ *  ressortir en 5xx — la confondre avec cet état-ci enverrait la commerçante
+ *  reprendre une photo qu'elle possède déjà. */
 export class ErreurImageSourceIndisponible extends Error {
   constructor(message: string) {
     super(message)
@@ -67,17 +72,43 @@ const lireImageSourceStep = createStep(
       throw new ErreurImageSourceIndisponible(MESSAGE_IMAGE_SOURCE_INDISPONIBLE)
     }
     const fichiers: any = container.resolve(Modules.FILE)
+    const logger = container.resolve(ContainerRegistrationKeys.LOGGER)
     let octets: Buffer
     try {
       octets = await fichiers.getAsBuffer(input.source_image_id)
     } catch (e) {
-      // Le détail technique (chemin, code errno du fournisseur) reste dans
-      // les journaux du serveur ; l'appelant ne reçoit que l'état.
-      const logger = container.resolve(ContainerRegistrationKeys.LOGGER)
-      logger.warn(
-        `lire-image-source : fichier « ${input.source_image_id} » illisible — ${(e as Error)?.message}`
+      // TOUTE erreur de lecture n'est PAS un état du catalogue. Aplatir les
+      // deux en `ErreurImageSourceIndisponible` faisait sortir une panne de
+      // stockage en 409 « reprenez une photo de votre étal » : un 4xx qui
+      // accuse la saisie d'une défaillance amont, et un conseil qui envoie
+      // la commerçante refaire un travail parfaitement inutile alors que sa
+      // photo est intacte.
+      //
+      // `ENOENT` — le fichier n'existe plus — est le seul défaut PERMANENT
+      // que le stockage local sait nommer : aucune reprise ne le ramènera,
+      // et c'est bien un état du catalogue. Tout le reste (volume démonté,
+      // disque saturé, seau distant injoignable, délai) est TRANSITOIRE et
+      // remonte tel quel, pour ressortir en 5xx chez l'appelant.
+      //
+      // Le doute penche du côté transitoire : classer à tort un défaut
+      // permanent en panne ne coûte qu'un 500 (« réessayez »), tandis que
+      // l'inverse accuse la commerçante. Un autre fournisseur de stockage
+      // (S3 et son `NoSuchKey`) devra ajouter ici SON code permanent —
+      // jamais élargir la règle à « toute erreur ».
+      if ((e as NodeJS.ErrnoException)?.code === "ENOENT") {
+        // Le détail technique (chemin, code errno du fournisseur) reste dans
+        // les journaux du serveur ; l'appelant ne reçoit que l'état.
+        logger.warn(
+          `lire-image-source : fichier « ${input.source_image_id} » introuvable — ${(e as Error)?.message}`
+        )
+        throw new ErreurImageSourceIndisponible(MESSAGE_IMAGE_SOURCE_INDISPONIBLE)
+      }
+      // `error` et non `warn` : une photo effacée est un état, une panne de
+      // stockage est un incident d'exploitation.
+      logger.error(
+        `lire-image-source : le stockage n'a pas répondu pour « ${input.source_image_id} » — ${(e as Error)?.message}`
       )
-      throw new ErreurImageSourceIndisponible(MESSAGE_IMAGE_SOURCE_INDISPONIBLE)
+      throw e
     }
     // Même convention que le reste du chantier : un contenu binaire voyage
     // en chaîne "binary" entre les étapes, jamais en UTF-8 (qui
