@@ -60,8 +60,7 @@ function entreePublication(m: any, brouillon: any, items: any[]) {
     merchant_id: m.merchant_id,
     sales_channel_id: m.sales_channel_id,
     stock_location_id: m.stock_location_id,
-    source_content: CONTENU_PHOTO,
-    source_filename: "etal.jpg",
+    source_image_id: brouillon.source_image_id,
     zones: zonesPourPublication(brouillon.zones),
     items,
   }
@@ -128,8 +127,7 @@ medusaIntegrationTestRunner({
               merchant_id: m.merchant_id,
               sales_channel_id: m.sales_channel_id,
               stock_location_id: m.stock_location_id,
-              source_content: CONTENU_PHOTO,
-              source_filename: "etal.jpg",
+              source_image_id: brouillon.source_image_id,
               zones: zonesPourPublication(zones),
               items: [
                 {
@@ -292,8 +290,7 @@ medusaIntegrationTestRunner({
           merchant_id: m.merchant_id,
           sales_channel_id: m.sales_channel_id,
           stock_location_id: m.stock_location_id,
-          source_content: CONTENU_PHOTO,
-          source_filename: "etal.jpg",
+          source_image_id: brouillon.source_image_id,
           zones: zonesPourPublication(brouillon.zones),
           items: [
             {

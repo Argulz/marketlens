@@ -1,43 +1,18 @@
-import path from "path"
 import { AuthenticatedMedusaRequest, MedusaResponse } from "@medusajs/framework/http"
-import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
+import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import publishCatalogueWorkflow from "../../../../../workflows/publish-catalogue"
 import { assurerRegionXof } from "../../../../../workflows/ensure-region"
 import { catalogueDuMarchand, etiquetteJournal, marchandActifOuRefus } from "../../scope"
 import { VISUAL_CATALOG_MODULE } from "../../../../../modules/visual-catalog"
 import VisualCatalogModuleService from "../../../../../modules/visual-catalog/service"
 import { NOM_ERREUR_VALIDATION_PUBLICATION } from "../../../../../workflows/steps/erreur-validation-publication"
+import { NOM_ERREUR_IMAGE_SOURCE_INDISPONIBLE } from "../../../../../workflows/annoter-catalogue"
 
 const MESSAGE_ECHEC_GENERIQUE =
   "La publication du catalogue a échoué. Réessayez plus tard."
 
-/**
- * Le fournisseur de fichiers local (celui utilisé par ce projet, faute de
- * configuration explicite d'un autre dans medusa-config.ts) sert ses
- * fichiers sous `<backend_url>/static/<clé>` — vérifié dans
- * node_modules/@medusajs/file-local/dist/services/local-file.js
- * (`getUploadFileUrl`). `FileModuleService.getAsBuffer` attend cette CLÉ,
- * pas l'URL complète (node_modules/@medusajs/file/dist/services/file-module-service.js) ;
- * on l'extrait donc du chemin de `source_image_url`, en ignorant l'hôte —
- * important en test, où `backend_url` par défaut ("http://localhost:9000")
- * ne correspond PAS au port aléatoire choisi par le serveur de test, ce qui
- * rendrait un second appel HTTP vers cette URL non fiable.
- *
- * Couplage assumé et limite connue : cette extraction suppose le
- * fournisseur de fichiers local. Elle casserait avec un fournisseur distant
- * (S3, etc.) dont les URLs ne suivent pas ce schéma — la clé de fichier
- * n'est actuellement pas persistée sur le catalogue, seule l'URL l'est.
- */
-function clefFichierLocaleDepuisUrl(url: string): string {
-  const chemin = new URL(url).pathname
-  const prefixe = "/static/"
-  if (!chemin.startsWith(prefixe)) {
-    throw new Error(
-      `Image source du catalogue illisible : l'URL enregistrée ne correspond pas au fournisseur de fichiers local attendu (« ${url} »).`
-    )
-  }
-  return decodeURIComponent(chemin.slice(prefixe.length))
-}
+const MESSAGE_IMAGE_SOURCE_ILLISIBLE =
+  "L'image source de ce catalogue est illisible ; publication impossible."
 
 export const POST = async (req: AuthenticatedMedusaRequest, res: MedusaResponse) => {
   const merchantId = req.auth_context.actor_id
@@ -111,27 +86,11 @@ export const POST = async (req: AuthenticatedMedusaRequest, res: MedusaResponse)
     category: z.detected_category,
   }))
 
-  // L'image source vient du module File, via l'URL enregistrée sur le
-  // catalogue — jamais du client (voir clefFichierLocaleDepuisUrl ci-dessus
-  // pour la limite connue de cette résolution).
-  let source_content: string
-  let source_filename: string
-  try {
-    const fileService: any = req.scope.resolve(Modules.FILE)
-    const fileKey = clefFichierLocaleDepuisUrl(catalogue.source_image_url)
-    const tampon: Buffer = await fileService.getAsBuffer(fileKey)
-    source_content = tampon.toString("binary")
-    source_filename = path.basename(fileKey)
-  } catch (e: any) {
-    const logger = req.scope.resolve(ContainerRegistrationKeys.LOGGER)
-    logger.error(
-      `POST /merchant/catalogues/${catalogue.id}/publish : image source illisible — ${e?.message}`
-    )
-    return res.status(500).json({
-      message: "L'image source de ce catalogue est illisible ; publication impossible.",
-    })
-  }
-
+  // L'image source n'est plus lue ICI : le workflow d'annotation la relit
+  // lui-même depuis le stockage, à partir de la clé de fichier persistée sur
+  // le catalogue. La route ne transporte donc plus le contenu de l'image en
+  // mémoire, et la déduction de cette clé depuis `source_image_url` — qui ne
+  // marchait qu'avec le fournisseur local — a disparu avec elle.
   try {
     const { result } = await publishCatalogueWorkflow(req.scope).run({
       input: {
@@ -139,8 +98,7 @@ export const POST = async (req: AuthenticatedMedusaRequest, res: MedusaResponse)
         merchant_id: merchantId,
         sales_channel_id: salesChannelId,
         stock_location_id: stockLocationId,
-        source_content,
-        source_filename,
+        source_image_id: catalogue.source_image_id,
         zones,
         items,
       },
@@ -166,6 +124,19 @@ export const POST = async (req: AuthenticatedMedusaRequest, res: MedusaResponse)
     // et en répondant un message stable.
     if (e?.name === NOM_ERREUR_VALIDATION_PUBLICATION) {
       return res.status(400).json({ message: e.message })
+    }
+
+    const journal = req.scope.resolve(ContainerRegistrationKeys.LOGGER)
+
+    // Photo d'origine introuvable : ni une faute de saisie (400), ni une
+    // panne du service de vision. Le message reste celui que cette route
+    // rendait déjà quand elle lisait le fichier elle-même — seul l'endroit
+    // où l'échec est constaté a changé.
+    if (e?.name === NOM_ERREUR_IMAGE_SOURCE_INDISPONIBLE) {
+      journal.error(
+        `POST /merchant/catalogues/${catalogue.id}/publish : image source illisible — ${e?.message}`
+      )
+      return res.status(500).json({ message: MESSAGE_IMAGE_SOURCE_ILLISIBLE })
     }
 
     const logger = req.scope.resolve(ContainerRegistrationKeys.LOGGER)

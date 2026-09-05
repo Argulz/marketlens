@@ -3,12 +3,11 @@ import {
   createProductsWorkflow,
   createInventoryLevelsWorkflow,
   createRemoteLinkStep,
-  uploadFilesWorkflow,
   useQueryGraphStep,
 } from "@medusajs/medusa/core-flows"
 import { Modules } from "@medusajs/framework/utils"
 import { VISUAL_CATALOG_MODULE } from "../modules/visual-catalog"
-import { annotateCatalogueStep } from "./steps/annotate-catalogue"
+import { annoterCatalogueWorkflow } from "./annoter-catalogue"
 import { publierCatalogueStep } from "./steps/publier-catalogue"
 import { verifierCatalogueMarchandStep } from "./steps/verifier-catalogue-marchand"
 import { validerItemsPublicationStep } from "./steps/valider-items-publication"
@@ -29,8 +28,13 @@ export type PublishCatalogueInput = {
   merchant_id: string
   sales_channel_id: string
   stock_location_id: string
-  source_content: string
-  source_filename: string
+  // Identifiant de fichier de la photo d'origine, persisté sur le catalogue
+  // par `analyzeCataloguePhotoWorkflow`. C'est la seule entrée dont
+  // l'annotation a besoin : le contenu de l'image n'est plus transporté en
+  // mémoire depuis la route, il est relu du stockage par
+  // `annoterCatalogueWorkflow`. Nullable parce que les catalogues créés
+  // avant cette colonne n'en ont pas.
+  source_image_id: string | null
   zones: { id: string; x: number; y: number; width: number; height: number; category: string }[]
   items: ItemPublication[]
 }
@@ -197,10 +201,16 @@ const publishCatalogueWorkflow = createWorkflow(
 
     // L'annotation vient APRÈS la création des produits : c'est ce qui rend
     // le test de compensation capable d'exercer leur retour arrière.
-    const annotee = annotateCatalogueStep(
-      transform(input, (i) => ({
-        content: i.source_content,
-        filename: i.source_filename,
+    //
+    // Elle passe par `annoterCatalogueWorkflow`, partagé avec la
+    // republication et la correction de prix : la publication n'a plus
+    // d'étape d'annotation à elle. Elle ne lui transmet plus le contenu de
+    // l'image — que seule la publication possédait — mais l'identifiant du
+    // fichier source, que le flux relit lui-même depuis le stockage.
+    const annotee = annoterCatalogueWorkflow.runAsStep({
+      input: transform(input, (i) => ({
+        catalogue_id: i.catalogue_id,
+        source_image_id: i.source_image_id,
         produits: i.items.map((item) => {
           const zone = i.zones.find((z) => z.id === item.zone_id)!
           return {
@@ -210,26 +220,20 @@ const publishCatalogueWorkflow = createWorkflow(
             price: item.price,
           }
         }),
-      }))
-    )
-
-    const fichierAnnote = uploadFilesWorkflow.runAsStep({
-      input: {
-        files: [
-          transform({ input, annotee }, (d) => ({
-            filename: `annote-${d.input.source_filename}`,
-            mimeType: "image/jpeg",
-            content: d.annotee,
-            access: "public" as const,
-          })),
-        ],
-      },
+      })),
     })
 
+    // `annoterCatalogueWorkflow` a déjà posé `annotated_image_url` ; ce step
+    // reste le SEUL à faire basculer le statut en `published`, et sa
+    // compensation restaure l'état exact d'avant. Lui repasser la même URL
+    // est sans effet de bord : les compensations se déroulant en ordre
+    // inverse, celle-ci restaure d'abord l'URL d'avant la publication, puis
+    // celle du flux d'annotation restaure la même — l'état final est bien
+    // celui d'avant.
     const catalogue = publierCatalogueStep(
-      transform({ input, fichierAnnote }, (d) => ({
+      transform({ input, annotee }, (d) => ({
         catalogue_id: d.input.catalogue_id,
-        annotated_image_url: d.fichierAnnote[0].url,
+        annotated_image_url: d.annotee.annotated_image_url,
       }))
     )
 

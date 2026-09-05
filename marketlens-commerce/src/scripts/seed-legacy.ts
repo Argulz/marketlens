@@ -431,8 +431,10 @@ export default async function seedLegacy({ container, args }: ExecArgs) {
             merchant_id: marchand.merchant_id,
             sales_channel_id: marchand.sales_channel_id,
             stock_location_id: marchand.stock_location_id,
-            source_content: octets.toString("binary"),
-            source_filename: `${dossier}.jpg`,
+            // La photo d'origine n'est plus transportée en mémoire : le
+            // flux d'annotation la relit du stockage via la clé de fichier
+            // que le brouillon vient de persister.
+            source_image_id: brouillon.source_image_id,
             zones: zonesPourPublication,
             items,
           },
