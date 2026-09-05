@@ -2,6 +2,7 @@ import { MedusaContainer } from "@medusajs/framework/types"
 import { ContainerRegistrationKeys, MedusaError } from "@medusajs/framework/utils"
 import { MERCHANT_MODULE } from "../../../modules/merchant"
 import MerchantModuleService from "../../../modules/merchant/service"
+import { ProduitAnnote } from "../../../lib/vision-client"
 
 /** Seul statut qui autorise quoi que ce soit. Exporté parce que la route de
  *  vitrine (`/store/catalogues/[handle]`) applique la MÊME règle sur le
@@ -292,4 +293,41 @@ export async function detailCatalogueDuMarchand(
         : null,
     })),
   }
+}
+
+/** Prix XOF actuellement posé sur la première variante d'une zone. Sert à
+ *  redessiner l'image entière : les zones NON corrigées doivent y garder
+ *  leur prix, sans quoi la nouvelle image mentirait sur elles. */
+export function prixAffiche(zone: ZoneDetail): string {
+  return String(zone.product?.variants?.[0]?.prix ?? "")
+}
+
+/**
+ * Projection `DetailCatalogue → ProduitAnnote[]` : ce que le service de
+ * vision doit dessiner sur l'image d'un catalogue publié.
+ *
+ * Exportée depuis ce fichier, et non gardée privée dans la route de
+ * correction des prix, parce qu'elle TRANCHE deux contraintes globales du
+ * lot, et qu'une seconde copie les re-trancherait en silence :
+ *
+ *  - les zones sans produit publié sont filtrées (une zone peut ne porter
+ *    aucun produit : la commerçante ne l'a pas mise en vente) ;
+ *  - le libellé montré est celui du PRODUIT publié, jamais
+ *    `detected_label` : les deux divergent par construction (elle a pu
+ *    corriger « pagne » en « Pagne wax »), et c'est le sien qui fait foi.
+ */
+export function produitsAAnnoter(detail: DetailCatalogue): ProduitAnnote[] {
+  return detail.zones
+    .filter((zone) => zone.product)
+    .map((zone) => ({
+      label: zone.product!.title,
+      x: zone.x,
+      y: zone.y,
+      width: zone.width,
+      height: zone.height,
+      // Une zone peut ne porter aucune catégorie détectée : le service de
+      // vision accepte une chaîne vide, pas un `null`.
+      category: zone.detected_category ?? "",
+      price: prixAffiche(zone),
+    }))
 }

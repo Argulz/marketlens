@@ -5,11 +5,10 @@ import {
   upsertVariantPricesWorkflow,
 } from "@medusajs/medusa/core-flows"
 import {
-  DetailCatalogue,
-  ZoneDetail,
   detailCatalogueDuMarchand,
   etiquetteJournal,
   marchandActifOuRefus,
+  produitsAAnnoter,
 } from "../../scope"
 import {
   ErreurValidationPublication,
@@ -20,7 +19,6 @@ import {
   NOM_ERREUR_IMAGE_SOURCE_INDISPONIBLE,
   annoterCatalogueWorkflow,
 } from "../../../../../workflows/annoter-catalogue"
-import { ProduitAnnote } from "../../../../../lib/vision-client"
 
 const MESSAGE_ECHEC_GENERIQUE =
   "La correction des prix a échoué. Réessayez plus tard."
@@ -33,32 +31,6 @@ const AVERTISSEMENT_IMAGE_NON_REGENEREE =
   "la photo d'origine n'est plus disponible."
 
 type ArticleCorrige = { zone_id: string; price: unknown; quantity: unknown }
-
-/** Prix XOF actuellement posé sur la première variante d'une zone. Sert à
- *  redessiner l'image entière : les zones NON corrigées doivent y garder
- *  leur prix, sans quoi la nouvelle image mentirait sur elles. */
-function prixAffiche(zone: ZoneDetail): string {
-  return String(zone.product?.variants?.[0]?.prix ?? "")
-}
-
-/** Le libellé montré à la commerçante est celui du PRODUIT publié, jamais
- *  `detected_label` : les deux divergent par construction (elle a pu
- *  corriger « pagne » en « Pagne wax »), et c'est le sien qui fait foi. */
-function produitsAAnnoter(detail: DetailCatalogue): ProduitAnnote[] {
-  return detail.zones
-    .filter((zone) => zone.product)
-    .map((zone) => ({
-      label: zone.product!.title,
-      x: zone.x,
-      y: zone.y,
-      width: zone.width,
-      height: zone.height,
-      // Une zone peut ne porter aucune catégorie détectée : le service de
-      // vision accepte une chaîne vide, pas un `null`.
-      category: zone.detected_category ?? "",
-      price: prixAffiche(zone),
-    }))
-}
 
 /**
  * Corrige les prix et les quantités des produits déjà publiés d'un
