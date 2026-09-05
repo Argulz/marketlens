@@ -1,6 +1,7 @@
 import { medusaIntegrationTestRunner } from "@medusajs/test-utils"
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
 import { VISUAL_CATALOG_MODULE } from "../../src/modules/visual-catalog"
+import { pendantUnePanneDeStockage } from "./helpers/panne-stockage"
 import { servirVisionFactice } from "./helpers/vision-stub"
 import {
   CatalogueDeTest,
@@ -374,6 +375,41 @@ medusaIntegrationTestRunner({
         // Le refus ne doit plus s'appuyer sur le statut : un catalogue
         // dépublié n'est « pas publié » lui non plus, et il a des prix.
         expect(r.data.message).not.toMatch(/pas encore publié/)
+      })
+
+      it("reste bénigne quand le stockage ne répond pas : 200 et un avertissement reprenable", async () => {
+        // La MÊME panne qui sort en 500 sur la remise en ligne ne doit pas
+        // durcir ce chemin-ci : les prix sont écrits, seule l'image manque.
+        // Et l'avertissement doit rester REPRENABLE — la photo d'origine est
+        // intacte, la déclarer perdue enverrait la commerçante en reprendre
+        // une pour rien.
+        const m = await publierUnCatalogue(api, "etal-stockage-muet", "22990000120")
+        const avant = await urlAnnotee(api, m)
+
+        const vision = await servirVisionFactice({ annotateSeulement: true })
+        let r: any
+        try {
+          r = await pendantUnePanneDeStockage(getContainer, () =>
+            api
+              .patch(
+                `/merchant/catalogues/${m.catalogueId}/items`,
+                { items: [{ zone_id: m.zones[0].id, price: "3300", quantity: 2 }] },
+                { headers: { authorization: `Bearer ${m.jeton}` } }
+              )
+              .catch((e: any) => e.response)
+          )
+        } finally {
+          await vision.fermer()
+        }
+
+        expect(r.status).toBe(200)
+        expect(r.data.avertissement).toContain("image")
+        expect(r.data.avertissement).toContain("Réessayez")
+        // Le libellé de la photo DÉFINITIVEMENT perdue n'a rien à faire ici.
+        expect(r.data.avertissement).not.toContain("photo d'origine")
+        // L'ancienne image, celle qui est réellement en base, repart.
+        expect(r.data.annotated_image_url).toBe(avant)
+        expect(await prixDeLaZone(api, m, m.zones[0].id)).toBe(3300)
       })
     })
   },

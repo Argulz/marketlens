@@ -1,6 +1,6 @@
 import { medusaIntegrationTestRunner } from "@medusajs/test-utils"
-import { Modules } from "@medusajs/framework/utils"
 import { VISUAL_CATALOG_MODULE } from "../../src/modules/visual-catalog"
+import { pendantUnePanneDeStockage } from "./helpers/panne-stockage"
 import { servirVisionFactice } from "./helpers/vision-stub"
 import {
   CatalogueDeTest,
@@ -30,34 +30,6 @@ async function statutCatalogue(api: any, m: CatalogueDeTest): Promise<string> {
 
 async function urlAnnotee(api: any, m: CatalogueDeTest): Promise<string> {
   return (await detailCatalogue(api, m)).annotated_image_url
-}
-
-/**
- * Coupe le STOCKAGE le temps d'un appel : `getAsBuffer` échoue avec un code
- * errno qui n'est pas `ENOENT`.
- *
- * C'est la panne TRANSITOIRE — volume démonté, disque saturé, seau distant
- * injoignable — par opposition au fichier définitivement effacé. La photo de
- * la commerçante est intacte ; seul le stockage ne répond pas. Aucun autre
- * moyen de produire cet état : il n'existe pas de fichier dont la lecture
- * échoue « temporairement » sur commande.
- */
-async function pendantUnePanneDeStockage<T>(
-  getContainer: any,
-  action: () => Promise<T>
-): Promise<T> {
-  const fichiers: any = getContainer().resolve(Modules.FILE)
-  const original = fichiers.getAsBuffer
-  fichiers.getAsBuffer = async () => {
-    const panne: any = new Error("EIO: i/o error, read")
-    panne.code = "EIO"
-    throw panne
-  }
-  try {
-    return await action()
-  } finally {
-    fichiers.getAsBuffer = original
-  }
 }
 
 medusaIntegrationTestRunner({
