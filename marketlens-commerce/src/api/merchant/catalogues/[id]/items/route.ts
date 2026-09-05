@@ -103,12 +103,20 @@ export const PATCH = async (req: AuthenticatedMedusaRequest, res: MedusaResponse
     // catalogue d'autrui — même raisonnement que sur les autres routes.
     return res.status(404).json({ message: "Catalogue introuvable" })
   }
-  if (detail.status !== "published") {
-    // Un brouillon n'a aucun produit : il n'y a pas de prix à corriger, il y
-    // a une publication à faire. Le dire plutôt que d'échouer plus loin sur
-    // une zone sans produit.
+  // Le refus porte sur l'absence de PRODUITS, jamais sur le statut. Un
+  // catalogue DÉPUBLIÉ est `draft` et garde pourtant ses produits, ses prix
+  // et son stock — c'est la garantie que porte ../unpublish, et c'est
+  // justement hors ligne qu'une commerçante retire sa vitrine pour
+  // retravailler ses prix avant de la remettre. Refuser sur `status !==
+  // "published"` interdisait le seul parcours pour lequel la dépublication
+  // existe.
+  //
+  // Un catalogue JAMAIS publié, lui, n'a effectivement aucun produit : il a
+  // une publication à faire, pas des prix à reprendre. Le dire plutôt que
+  // d'échouer plus loin sur une zone sans produit.
+  if (detail.zones.every((zone) => !zone.product)) {
     return res.status(409).json({
-      message: "Ce catalogue n'est pas encore publié : il n'a pas de prix à corriger.",
+      message: "Ce catalogue n'a encore aucun produit : publiez-le pour fixer ses prix.",
     })
   }
 

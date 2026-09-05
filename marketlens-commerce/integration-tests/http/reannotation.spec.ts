@@ -4,6 +4,7 @@ import { VISUAL_CATALOG_MODULE } from "../../src/modules/visual-catalog"
 import { servirVisionFactice } from "./helpers/vision-stub"
 import {
   CatalogueDeTest,
+  analyserUnCatalogue,
   detailCatalogue,
   etatCommercial,
   publierUnCatalogue,
@@ -310,6 +311,69 @@ medusaIntegrationTestRunner({
 
         expect(r.status).toBe(404)
         expect(await prixDeLaZone(api, yaa, yaa.zones[0].id)).toBe(5000)
+      })
+
+      it("corrige les prix d'un catalogue DÉPUBLIÉ, qui est draft mais garde ses produits", async () => {
+        // Retirer sa vitrine pour retravailler ses prix, puis la remettre :
+        // c'est la raison même de la dépublication. Refuser la correction
+        // parce que le statut n'est pas `published` interdirait le seul
+        // parcours pour lequel elle existe.
+        const m = await publierUnCatalogue(api, "etal-corr-hors-ligne", "22990000118")
+        const enTete = { authorization: `Bearer ${m.jeton}` }
+        expect(
+          (
+            await api.post(
+              `/merchant/catalogues/${m.catalogueId}/unpublish`,
+              {},
+              { headers: enTete }
+            )
+          ).status
+        ).toBe(200)
+
+        const vision = await servirVisionFactice({ annotateSeulement: true })
+        let r: any
+        try {
+          r = await api
+            .patch(
+              `/merchant/catalogues/${m.catalogueId}/items`,
+              { items: [{ zone_id: m.zones[0].id, price: "2200", quantity: 4 }] },
+              { headers: enTete }
+            )
+            .catch((e: any) => e.response)
+        } finally {
+          await vision.fermer()
+        }
+
+        expect(r.status).toBe(200)
+        expect(r.data.avertissement).toBeUndefined()
+        // Les écritures commerciales ont bien eu lieu : un 200 sans elles ne
+        // vaudrait pas mieux que le 409.
+        const etat = await etatCommercial(api, getContainer, m, m.zones[0].id)
+        expect(etat.prixXof).toEqual([2200])
+        expect(etat.quantites).toEqual([4])
+        // Et corriger hors ligne ne remet PAS le catalogue en vitrine : la
+        // commerçante décide seule du moment où elle y retourne.
+        expect((await detailCatalogue(api, m)).status).toBe("draft")
+      })
+
+      it("refuse en français la correction d'un catalogue qui n'a aucun produit", async () => {
+        // Un catalogue JAMAIS publié, lui, n'a effectivement rien à
+        // corriger : c'est l'absence de produits qui refuse, pas le statut.
+        const m = await analyserUnCatalogue(api, "etal-jamais-publie", "22990000119")
+
+        const r = await api
+          .patch(
+            `/merchant/catalogues/${m.catalogueId}/items`,
+            { items: [{ zone_id: m.zones[0].id, price: "2200", quantity: 4 }] },
+            { headers: { authorization: `Bearer ${m.jeton}` } }
+          )
+          .catch((e: any) => e.response)
+
+        expect(r.status).toBe(409)
+        expect(r.data.message).toMatch(/aucun produit/)
+        // Le refus ne doit plus s'appuyer sur le statut : un catalogue
+        // dépublié n'est « pas publié » lui non plus, et il a des prix.
+        expect(r.data.message).not.toMatch(/pas encore publié/)
       })
     })
   },
