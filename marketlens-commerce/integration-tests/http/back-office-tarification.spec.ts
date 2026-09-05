@@ -114,6 +114,38 @@ medusaIntegrationTestRunner({
         }
       })
 
+      it("sert le même calcul de stock testé unitairement, sans lecture dupliquée de la quantité (findings R13/R14)", async () => {
+        const { cookie, catalogueId } = await connecterEtAnalyser(
+          "etal-tarif-stock", "22990000097"
+        )
+        const p = await api.get(`/marchand/catalogues/${catalogueId}`, { headers: { cookie } })
+        expect(p.status).toBe(200)
+
+        // R14 : les fonctions pures de src/lib/pages/stock.ts (couvertes par
+        // integration-tests/modules/stock.spec.ts) sont injectées dans la
+        // page via `.toString()`, pas recopiées dans le gabarit — leur
+        // présence en tant que déclarations de fonction dans le script servi
+        // en est la preuve à ce niveau (l'exécution du calcul lui-même n'est
+        // vérifiable qu'au niveau unitaire, aucun navigateur n'intervenant
+        // dans cette suite HTTP).
+        expect(p.data).toContain("function lireQuantite(")
+        expect(p.data).toContain("function compterDeclinaisons(")
+        expect(p.data).toContain("function calculerStockTotal(")
+        expect(p.data).toContain("function texteStock(")
+
+        // R13 : `recalculer()` (affichage) et le gestionnaire de publication
+        // (envoi) doivent lire la quantité par le même appel — deux occurrences
+        // de `lireQuantite(tr.querySelector("[data-qte]").value)`, une par
+        // usage. L'ancienne lecture sans filet (`Number(tr.querySelector(...)
+        // .value)`, sans passer par `lireQuantite`) ne doit plus apparaître :
+        // c'est exactement la divergence affichage/envoi que R13 corrige.
+        const occurrences = p.data.split(
+          'lireQuantite(tr.querySelector("[data-qte]").value)'
+        ).length - 1
+        expect(occurrences).toBe(2)
+        expect(p.data).not.toContain('quantity: Number(tr.querySelector("[data-qte]").value)')
+      })
+
       it("ne sert pas le catalogue d'une autre commerçante", async () => {
         const a = await connecterEtAnalyser("etal-tarif-a", "22990000092")
         const b = await connecterEtAnalyser("etal-tarif-b", "22990000093")

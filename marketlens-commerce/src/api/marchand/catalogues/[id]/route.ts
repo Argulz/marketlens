@@ -1,29 +1,60 @@
 import { MedusaResponse } from "@medusajs/framework/http"
 import { brut, html } from "../../../../lib/html"
 import { page, pageIntrouvable } from "../../../../lib/pages/layout"
+import {
+  calculerStockTotal,
+  compterDeclinaisons,
+  lireQuantite,
+  texteStock,
+} from "../../../../lib/pages/stock"
 import { RequetePageMarchand } from "../../garde"
 import { detailCatalogueDuMarchand } from "../../../merchant/catalogues/scope"
+
+// Les quatre fonctions de calcul de stock (D5) sont injectées telles quelles
+// dans la page, en sérialisant leur code (`.toString()`) plutôt qu'en
+// recopiant leur formule dans ce gabarit (finding R14) : le code exercé par
+// `integration-tests/modules/stock.spec.ts` est ainsi EXACTEMENT celui livré
+// au navigateur — aucune copie qui pourrait diverger de la formule testée.
+// Elles n'ont pas besoin d'être appelées ici : `.toString()` restitue le
+// code source compilé (sans commentaires ni annotation de type), vérifié
+// manuellement pour ce module. Ordre sans importance à l'exécution
+// (déclarations de fonction, donc « hoistées »), gardé ici dans l'ordre de
+// dépendance pour la lisibilité du script généré.
+const FONCTIONS_STOCK = [lireQuantite, compterDeclinaisons, calculerStockTotal, texteStock]
+  .map((f) => f.toString())
+  .join("\n\n")
 
 // Envoi en JavaScript, comme src/api/marchand/nouveau/route.ts : publier
 // sans recharger la page permet d'afficher le message français rendu par la
 // route amont, et de désactiver le bouton pendant l'appel. Contenu de CE
 // dépôt uniquement (jamais une valeur venue de la base ou du service de
-// vision) : légitime à insérer via `brut`.
+// vision) : légitime à insérer via `brut` — `FONCTIONS_STOCK` y compris,
+// puisqu'il provient du code source de ce module, jamais d'une requête.
 //
 // Les libellés détectés viennent de Gemini, donc d'un tiers : ce script ne
 // pose JAMAIS de HTML via `innerHTML` sur une valeur qui en proviendrait —
 // il ne lit que `.value` sur des `<input>` (qui n'interprètent jamais leur
 // contenu comme du balisage) et n'écrit que via `textContent`.
-const SCRIPT = `
+//
+// Finding R13 : `recalculer()` (affichage) et le gestionnaire de publication
+// (envoi) appellent désormais tous deux `lireQuantite()` — la même lecture
+// sert aux deux, il ne peut plus y avoir de divergence entre ce que la
+// commerçante lit à l'écran et ce qui part au serveur. Une quantité invalide
+// bloque la publication AVANT l'appel réseau, avec un message qui désigne le
+// produit en cause, plutôt que d'attendre un refus serveur sans rapport
+// apparent avec ce qui vient d'être lu.
+const SCRIPT =
+  FONCTIONS_STOCK +
+  `
+
 const liste = (v) => v.split(",").map(s => s.trim()).filter(Boolean)
 function recalculer(tr) {
-  const q = Number(tr.querySelector("[data-qte]").value) || 0
-  const c = Math.max(1, liste(tr.querySelector("[data-coul]").value).length)
-  const t = Math.max(1, liste(tr.querySelector("[data-tail]").value).length)
-  const n = c * t
-  tr.querySelector("[data-total]").textContent =
-    n > 1 ? q + " par déclinaison × " + n + " déclinaisons = " + (q * n) + " en stock"
-          : q + " en stock"
+  const q = lireQuantite(tr.querySelector("[data-qte]").value)
+  const n = compterDeclinaisons(
+    liste(tr.querySelector("[data-coul]").value),
+    liste(tr.querySelector("[data-tail]").value)
+  )
+  tr.querySelector("[data-total]").textContent = texteStock(q, n)
 }
 document.querySelectorAll("tr[data-zone]").forEach(tr => {
   tr.querySelectorAll("input").forEach(i => i.oninput = () => recalculer(tr))
@@ -31,18 +62,24 @@ document.querySelectorAll("tr[data-zone]").forEach(tr => {
 })
 document.getElementById("publier").onclick = async () => {
   const items = []
+  const msg = document.getElementById("msg")
   for (const tr of document.querySelectorAll("tr[data-zone]")) {
     if (!tr.querySelector("[data-vendre]").checked) continue
+    const q = lireQuantite(tr.querySelector("[data-qte]").value)
+    if (!q.valide) {
+      msg.className = "err"
+      msg.textContent = "Corrigez la quantité de « " + tr.querySelector("[data-lib]").value.trim() + " » avant de publier."
+      return
+    }
     items.push({
       zone_id: tr.dataset.zone,
       label: tr.querySelector("[data-lib]").value.trim(),
       price: tr.querySelector("[data-prix]").value.trim(),
-      quantity: Number(tr.querySelector("[data-qte]").value),
+      quantity: q.valeur,
       colors: liste(tr.querySelector("[data-coul]").value),
       sizes: liste(tr.querySelector("[data-tail]").value),
     })
   }
-  const msg = document.getElementById("msg")
   if (items.length === 0) {
     msg.className = "err"
     msg.textContent = "Cochez au moins un produit à mettre en vente."
