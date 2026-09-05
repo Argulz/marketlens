@@ -251,6 +251,39 @@ medusaIntegrationTestRunner({
         expect(p.data).not.toContain("<script>alert(1)</script>")
       })
 
+      it("bloque la publication avec un message français quand la quantité est invalide", async () => {
+        // Ce refus est porté par `validerItemsPublicationStep`
+        // (src/workflows/steps/valider-items-publication.ts), pas par le
+        // script injecté dans la page (celui-ci bloquerait l'envoi AVANT
+        // même l'appel réseau, ce que cette suite HTTP — sans navigateur —
+        // ne peut pas exercer). Ce test couvre donc le filet côté serveur :
+        // même un appel qui contournerait la lecture côté écran reçoit un
+        // message français exploitable, jamais une erreur technique brute.
+        const { cookie, catalogueId, zones } = await connecterEtAnalyser(
+          "etal-tarif-qte-invalide", "22990000098"
+        )
+        const pub = await api.post(
+          `/merchant/catalogues/${catalogueId}/publish`,
+          {
+            items: [
+              {
+                zone_id: zones[0].id,
+                label: "Pagne wax",
+                price: "5000",
+                quantity: -1,
+                colors: [],
+                sizes: [],
+              },
+            ],
+          },
+          { headers: { cookie }, validateStatus: () => true }
+        )
+        expect(pub.status).toBe(400)
+        expect(pub.data.message).toBe(
+          "La quantité de « Pagne wax » doit être un entier positif ou nul."
+        )
+      })
+
       it("redirige un visiteur sans session vers l'écran de connexion", async () => {
         const p = await api.get("/marchand/catalogues/peu-importe", {
           maxRedirects: 0,
