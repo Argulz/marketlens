@@ -1,29 +1,19 @@
 import { MedusaResponse } from "@medusajs/framework/http"
 import { brut, html } from "../../../../lib/html"
 import { page, pageIntrouvable } from "../../../../lib/pages/layout"
-import {
-  calculerStockTotal,
-  compterDeclinaisons,
-  lireQuantite,
-  texteStock,
-} from "../../../../lib/pages/stock"
+import { SCRIPT_STOCK } from "../../../../lib/pages/stock"
 import { RequetePageMarchand } from "../../garde"
 import { detailCatalogueDuMarchand } from "../../../merchant/catalogues/scope"
 
-// Les quatre fonctions de calcul de stock (D5) sont injectées telles quelles
-// dans la page, en sérialisant leur code (`.toString()`) plutôt qu'en
-// recopiant leur formule dans ce gabarit (finding R14) : le code exercé par
-// `integration-tests/modules/stock.spec.ts` est ainsi EXACTEMENT celui livré
-// au navigateur — aucune copie qui pourrait diverger de la formule testée.
-// Elles n'ont pas besoin d'être appelées ici : `.toString()` restitue le
-// code source compilé (sans commentaires ni annotation de type), vérifié
-// manuellement pour ce module. Ordre sans importance à l'exécution
-// (déclarations de fonction, donc « hoistées »), gardé ici dans l'ordre de
-// dépendance pour la lisibilité du script généré.
-const FONCTIONS_STOCK = [lireQuantite, compterDeclinaisons, calculerStockTotal, texteStock]
-  .map((f) => f.toString())
-  .join("\n\n")
-
+// `SCRIPT_STOCK` (défini dans `src/lib/pages/stock.ts`, à côté des fonctions
+// qu'il sérialise) est la SEULE définition de ce qui part au navigateur pour
+// le calcul de stock (D5) : cette route ne recopie plus rien, elle consomme
+// l'export tel quel. C'est ce qui garantit que le code exercé par
+// `integration-tests/modules/stock.spec.ts` est EXACTEMENT celui livré au
+// navigateur (finding R14) — y compris la garde `new Function` de ce
+// fichier, qui évalue réellement la chaîne plutôt que de vérifier la
+// présence des noms de fonctions.
+//
 // Envoi en JavaScript, comme src/api/marchand/nouveau/route.ts : publier
 // sans recharger la page permet d'afficher le message français rendu par la
 // route amont, et de désactiver le bouton pendant l'appel. Contenu de CE
@@ -44,7 +34,7 @@ const FONCTIONS_STOCK = [lireQuantite, compterDeclinaisons, calculerStockTotal, 
 // produit en cause, plutôt que d'attendre un refus serveur sans rapport
 // apparent avec ce qui vient d'être lu.
 const SCRIPT =
-  FONCTIONS_STOCK +
+  SCRIPT_STOCK +
   `
 
 const liste = (v) => v.split(",").map(s => s.trim()).filter(Boolean)

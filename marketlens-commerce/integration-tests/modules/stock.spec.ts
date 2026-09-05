@@ -13,6 +13,7 @@ import {
   calculerStockTotal,
   compterDeclinaisons,
   lireQuantite,
+  SCRIPT_STOCK,
   texteStock,
 } from "../../src/lib/pages/stock"
 
@@ -83,6 +84,45 @@ describe("Calcul du stock par déclinaison (D5)", () => {
     it("signale une entrée invalide au lieu d'annoncer un stock (finding R13)", () => {
       expect(texteStock({ valide: false }, 4)).toBe(
         "Quantité invalide : entrez un nombre entier positif ou nul."
+      )
+    })
+
+    it("annonce zéro en stock pour plusieurs déclinaisons plutôt que de masquer le détail", () => {
+      expect(texteStock({ valide: true, valeur: 0 }, 4)).toBe(
+        "0 par déclinaison × 4 déclinaisons = 0 en stock"
+      )
+    })
+  })
+
+  // Garde contre une régression que ni ce fichier ni le test HTTP ne
+  // détecteraient autrement : `SCRIPT_STOCK` est injecté tel quel dans la
+  // page (`src/api/marchand/catalogues/[id]/route.ts`) via `brut(...)`, à
+  // l'intérieur d'un unique élément <script>. Rien n'empêchait jusqu'ici
+  // d'ajouter à `stock.ts` un `import` ou une constante de portée module :
+  // les noms de fonctions resteraient présents dans la page, le test HTTP
+  // (qui ne vérifiait que leur présence) resterait vert, et cette suite
+  // aussi — puisqu'elle appelle les fonctions importées, pas la chaîne
+  // injectée. La page casserait alors en `ReferenceError` dans le
+  // navigateur, sans qu'aucun test ne le voie.
+  //
+  // En évaluant réellement `SCRIPT_STOCK` avec `new Function`, exactement
+  // comme le fait un <script> de page, cette garde détecte toute fermeture
+  // sur une variable ou un import externe : `new Function` lèverait alors
+  // une `ReferenceError` au lieu de rendre les fonctions attendues.
+  describe("SCRIPT_STOCK (chaîne injectée dans la page)", () => {
+    it("ne contient pas de balise fermante </script> (évasion de contexte, donc XSS)", () => {
+      expect(SCRIPT_STOCK).not.toMatch(/<\/script/i)
+    })
+
+    it("s'évalue seule, sans import ni variable de portée externe, et expose les fonctions attendues", () => {
+      const injecte = new Function(
+        SCRIPT_STOCK + "\nreturn { lireQuantite, texteStock, compterDeclinaisons }"
+      )()
+
+      expect(injecte.lireQuantite("4")).toEqual({ valide: true, valeur: 4 })
+      expect(injecte.lireQuantite("abc")).toEqual({ valide: false })
+      expect(injecte.texteStock({ valide: true, valeur: 4 }, 4)).toBe(
+        "4 par déclinaison × 4 déclinaisons = 16 en stock"
       )
     })
   })

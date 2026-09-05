@@ -60,3 +60,15 @@ export function texteStock(quantite: QuantiteLue, declinaisons: number): string 
     ? quantite.valeur + " par déclinaison × " + declinaisons + " déclinaisons = " + total + " en stock"
     : quantite.valeur + " en stock"
 }
+
+// Chaîne effectivement injectée dans la page (voir
+// `src/api/marchand/catalogues/[id]/route.ts`), obtenue en sérialisant le
+// code source de chaque fonction ci-dessus (`.toString()`) plutôt qu'en le
+// recopiant dans un gabarit. Définie ici, à côté des fonctions dont elle
+// dépend, plutôt que dans la route : il ne peut plus exister qu'une seule
+// définition de ce qui part au navigateur, et `integration-tests/modules/
+// stock.spec.ts` peut l'évaluer directement (garde `new Function`) plutôt
+// que de se fier à la seule présence des noms de fonctions dans la page.
+export const SCRIPT_STOCK = [lireQuantite, compterDeclinaisons, calculerStockTotal, texteStock]
+  .map((f) => f.toString())
+  .join("\n\n")
