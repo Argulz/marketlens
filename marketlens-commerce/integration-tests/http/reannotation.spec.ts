@@ -2,97 +2,12 @@ import { medusaIntegrationTestRunner } from "@medusajs/test-utils"
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
 import { VISUAL_CATALOG_MODULE } from "../../src/modules/visual-catalog"
 import { servirVisionFactice } from "./helpers/vision-stub"
+import {
+  CatalogueDeTest,
+  publierUnCatalogue,
+} from "./helpers/catalogue-publie"
 
 jest.setTimeout(90 * 1000)
-
-const MOT_DE_PASSE = "motdepasse-de-test"
-
-const ZONE_PAGNE = { label: "Pagne", x: 250, y: 400, width: 200, height: 150, category: "textile" }
-const ZONE_TOMATES = { label: "Tomates", x: 700, y: 500, width: 250, height: 300, category: "fruits_legumes" }
-
-/** Corps multipart d'une photo d'étal minimale (quatre octets d'en-tête
- *  JPEG), sur le même motif que catalogue-detail.spec.ts : ce fichier
- *  n'éprouve jamais le décodage de l'image, seulement les routes. */
-function corpsPhoto(titre: string): FormData {
-  const form = new FormData()
-  form.append(
-    "image",
-    new Blob([Buffer.from([0xff, 0xd8, 0xff, 0xe0])], { type: "image/jpeg" }),
-    "etal.jpg"
-  )
-  form.append("title", titre)
-  return form
-}
-
-type CatalogueDeTest = {
-  jeton: string
-  catalogueId: string
-  zones: { id: string; detected_label: string }[]
-}
-
-/**
- * Inscrit une commerçante, analyse une photo pour elle puis PUBLIE le
- * catalogue — deux zones, deux produits. Tout passe par les vraies routes
- * HTTP : c'est le seul moyen de prouver que `source_image_id` est bien
- * persisté par le chemin réel, et non seulement par un appel direct au
- * workflow.
- */
-async function publierUnCatalogue(
-  api: any,
-  handle: string,
-  phone: string,
-  // Nombre de zones réellement MISES EN VENTE. Deux par défaut ; une seule
-  // laisse la seconde zone détectée sans aucun produit — l'état qu'une
-  // commerçante obtient dès qu'elle ne tarife pas tout son étal, et que
-  // l'écran de correction affichera pourtant en ligne.
-  zonesAPublier: 1 | 2 = 2
-): Promise<CatalogueDeTest> {
-  const email = `${handle}@marketlens.test`
-  const inscription = await api.post("/auth/merchant/emailpass/register", {
-    email,
-    password: MOT_DE_PASSE,
-  })
-  await api.post(
-    "/merchant/register",
-    { name: `Étal ${handle}`, handle, phone },
-    { headers: { authorization: `Bearer ${inscription.data.token}` } }
-  )
-  // Second jeton : celui de l'inscription ne porte pas encore d'`actor_id`.
-  const connexion = await api.post("/auth/merchant/emailpass", {
-    email,
-    password: MOT_DE_PASSE,
-  })
-  const jeton = connexion.data.token as string
-
-  const vision = await servirVisionFactice({
-    detect: { products: [ZONE_PAGNE, ZONE_TOMATES], count: 2 },
-  })
-  try {
-    const analyse = await api.post(
-      "/merchant/catalogues",
-      corpsPhoto(`Catalogue de ${handle}`),
-      { headers: { authorization: `Bearer ${jeton}` } }
-    )
-    const catalogueId = analyse.data.catalogue.id as string
-    const zones = analyse.data.zones as { id: string; detected_label: string }[]
-
-    const publication = await api.post(
-      `/merchant/catalogues/${catalogueId}/publish`,
-      {
-        items: [
-          { zone_id: zones[0].id, label: "Pagne wax", price: "5000", quantity: 3, colors: [], sizes: [] },
-          { zone_id: zones[1].id, label: "Tomates fraîches", price: "500", quantity: 10, colors: [], sizes: [] },
-        ].slice(0, zonesAPublier),
-      },
-      { headers: { authorization: `Bearer ${jeton}` } }
-    )
-    expect(publication.status).toBe(200)
-
-    return { jeton, catalogueId, zones }
-  } finally {
-    await vision.fermer()
-  }
-}
 
 /** Tous les prix XOF posés sur les variantes du produit d'une zone, et les
  *  quantités en stock de leurs articles d'inventaire. Lecture directe, sans
