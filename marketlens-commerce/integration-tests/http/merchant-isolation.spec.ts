@@ -338,6 +338,21 @@ medusaIntegrationTestRunner({
         expect(tentativePublication.status).toBe(403)
         expect(tentativePublication.data.message).toBe(MESSAGE_INACTIF)
 
+        // La correction des prix d'un catalogue DÉJÀ publié : c'est la seule
+        // route marchand qui écrit sur des produits en vente, donc celle par
+        // laquelle une suspension inopérante coûterait le plus cher. Rien ne
+        // structure ce balayage — chaque route doit y être inscrite à la
+        // main, sous peine de la régression du lot précédent.
+        const tentativeCorrection = await api
+          .patch(
+            `/merchant/catalogues/${publie.id}/items`,
+            { items: [{ zone_id: publie.zones[0].id, price: "600", quantity: 1 }] },
+            { headers: enTete }
+          )
+          .catch((e) => e.response)
+        expect(tentativeCorrection.status).toBe(403)
+        expect(tentativeCorrection.data.message).toBe(MESSAGE_INACTIF)
+
         // La vitrine rend 404 et non 403 : elle ne révèle ni l'existence du
         // catalogue ni la raison du refus. Le message est exactement celui
         // d'un catalogue inexistant.
