@@ -23,12 +23,49 @@ import {
 const MESSAGE_ECHEC_GENERIQUE =
   "La correction des prix a échoué. Réessayez plus tard."
 
-/** L'image n'a pas suivi, mais les prix SONT à jour. Laisser croire que rien
- *  n'a changé serait le pire comportement possible : la commerçante
- *  ressaisirait ses prix, ou pire, croirait sa vitrine à jour. */
-const AVERTISSEMENT_IMAGE_NON_REGENEREE =
-  "Les prix sont à jour, mais l'image du catalogue n'a pas pu être régénérée : " +
-  "la photo d'origine n'est plus disponible."
+/**
+ * Un échec PARTIEL de la correction. Les prix, eux, sont écrits : c'est la
+ * seule chose que la commerçante doit lire en premier, et elle ne doit pas
+ * la lire deux fois parce que deux écritures ont échoué. D'où des
+ * FRAGMENTS assemblés en une phrase, plutôt que des messages entiers
+ * concaténés.
+ *
+ * Laisser croire que rien n'a changé serait le pire comportement possible :
+ * elle ressaisirait ses prix, ou pire, croirait sa vitrine inchangée alors
+ * qu'elle ne l'est pas.
+ */
+type Avertissement = { fragment: string; reessayable: boolean }
+
+/** Les prix sont passés, le stock non : deux `.run()` = deux transactions,
+ *  et la première n'est PAS compensée par l'échec de la seconde. */
+const AVERTISSEMENT_STOCK: Avertissement = {
+  fragment: "les quantités n'ont pas pu être enregistrées",
+  reessayable: true,
+}
+
+const AVERTISSEMENT_IMAGE_SOURCE_PERDUE: Avertissement = {
+  fragment:
+    "l'image du catalogue n'a pas pu être régénérée : la photo d'origine n'est plus disponible",
+  // Aucune reprise ne ramènera un fichier disparu : promettre « réessayez »
+  // enverrait la commerçante réessayer indéfiniment.
+  reessayable: false,
+}
+
+const AVERTISSEMENT_IMAGE: Avertissement = {
+  fragment: "l'image du catalogue n'a pas pu être régénérée",
+  reessayable: true,
+}
+
+/** `undefined` quand tout est passé : l'absence de clé `avertissement` est
+ *  ce qui distingue un succès complet d'un succès partiel. */
+function phraseAvertissement(echecs: Avertissement[]): string | undefined {
+  if (echecs.length === 0) return undefined
+  const corps = echecs.map((e) => e.fragment).join(", et ")
+  const reprise = echecs.every((e) => e.reessayable)
+    ? " Réessayez dans quelques minutes."
+    : ""
+  return `Les prix sont à jour, mais ${corps}.${reprise}`
+}
 
 type ArticleCorrige = { zone_id: string; price: unknown; quantity: unknown }
 
@@ -190,6 +227,11 @@ export const PATCH = async (req: AuthenticatedMedusaRequest, res: MedusaResponse
     }
   }
 
+  // DEUX écritures, DEUX transactions, donc DEUX `try`. Un seul `try` sur
+  // les deux `.run()` était le pire des deux mondes : l'échec du stock ne
+  // compense pas les prix — chaque workflow a sa propre transaction — mais
+  // la route rendait tout de même « la correction a échoué ». Elle mentait
+  // donc à la commerçante sur une écriture bel et bien faite.
   try {
     await upsertVariantPricesWorkflow(req.scope).run({
       input: {
@@ -202,15 +244,30 @@ export const PATCH = async (req: AuthenticatedMedusaRequest, res: MedusaResponse
         previousVariantIds: variantPrices.map((v) => v.variant_id),
       },
     })
-
-    if (niveaux.length > 0) {
-      await updateInventoryLevelsWorkflow(req.scope).run({ input: { updates: niveaux } })
-    }
   } catch (e: any) {
+    // Le PREMIER workflow : rien n'a été écrit, le 500 ne cache donc rien.
     logger.error(
-      `PATCH /merchant/catalogues/${detail.id}/items : échec de la mise à jour des prix ou du stock — ${e?.message}`
+      `PATCH /merchant/catalogues/${detail.id}/items : échec de la mise à jour des prix — ${e?.message}`
     )
     return res.status(500).json({ message: MESSAGE_ECHEC_GENERIQUE })
+  }
+
+  const echecs: Avertissement[] = []
+
+  if (niveaux.length > 0) {
+    try {
+      await updateInventoryLevelsWorkflow(req.scope).run({ input: { updates: niveaux } })
+    } catch (e: any) {
+      // Panne atteignable, pas théorique : `updateInventoryLevels_` appelle
+      // `ensureInventoryLevels`
+      // (node_modules/@medusajs/inventory/dist/services/inventory-module.js:200-204),
+      // qui LÈVE si le couple (article d'inventaire, emplacement) n'existe
+      // pas — un emplacement remplacé, un article dépeuplé, et la voilà.
+      logger.error(
+        `PATCH /merchant/catalogues/${detail.id}/items : échec de la mise à jour du stock — ${e?.message}`
+      )
+      echecs.push(AVERTISSEMENT_STOCK)
+    }
   }
 
   // Relecture APRÈS écriture : l'image doit porter les prix réellement en
@@ -223,10 +280,14 @@ export const PATCH = async (req: AuthenticatedMedusaRequest, res: MedusaResponse
     detail.id
   )
   if (!detailAJour) {
+    // Les prix sont écrits ici AUSSI : ce 500 portait exactement le même
+    // message mensonger que celui du stock. On ne peut plus régénérer
+    // l'image faute de savoir quoi y dessiner — c'est tout ce qui manque.
     logger.error(
       `PATCH /merchant/catalogues/${detail.id}/items : catalogue introuvable après mise à jour.`
     )
-    return res.status(500).json({ message: MESSAGE_ECHEC_GENERIQUE })
+    echecs.push(AVERTISSEMENT_IMAGE)
+    return res.json({ ok: true, avertissement: phraseAvertissement(echecs) })
   }
 
   try {
@@ -237,6 +298,7 @@ export const PATCH = async (req: AuthenticatedMedusaRequest, res: MedusaResponse
         produits: produitsAAnnoter(detailAJour),
       },
     })
+    return res.json({ ok: true, avertissement: phraseAvertissement(echecs) })
   } catch (e: any) {
     // Le rejet d'un `.run()` de workflow n'est pas l'instance d'origine :
     // seul `.name` survit à la sérialisation de l'orchestrateur.
@@ -244,21 +306,17 @@ export const PATCH = async (req: AuthenticatedMedusaRequest, res: MedusaResponse
       logger.warn(
         `Régénération impossible pour ${detailAJour.id} : ${e?.message}`
       )
-      return res.json({ ok: true, avertissement: AVERTISSEMENT_IMAGE_NON_REGENEREE })
+      echecs.push(AVERTISSEMENT_IMAGE_SOURCE_PERDUE)
+    } else {
+      // Toute autre panne (service de vision, stockage, base) laisse elle
+      // aussi les prix à jour : refuser en 4xx accuserait la saisie de la
+      // commerçante, et taire l'échec lui ferait croire sa vitrine à jour.
+      logger.error(
+        `PATCH /merchant/catalogues/${detailAJour.id}/items : régénération de l'image en échec — ${e?.message}`
+      )
+      echecs.push(AVERTISSEMENT_IMAGE)
     }
 
-    // Toute autre panne (service de vision, stockage, base) laisse elle
-    // aussi les prix à jour : refuser en 4xx accuserait la saisie de la
-    // commerçante, et taire l'échec lui ferait croire sa vitrine à jour.
-    logger.error(
-      `PATCH /merchant/catalogues/${detailAJour.id}/items : régénération de l'image en échec — ${e?.message}`
-    )
-    return res.json({
-      ok: true,
-      avertissement:
-        "Les prix sont à jour, mais l'image du catalogue n'a pas pu être régénérée. Réessayez dans quelques minutes.",
-    })
+    return res.json({ ok: true, avertissement: phraseAvertissement(echecs) })
   }
-
-  res.json({ ok: true })
 }

@@ -1,5 +1,5 @@
 import { medusaIntegrationTestRunner } from "@medusajs/test-utils"
-import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
+import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
 import { VISUAL_CATALOG_MODULE } from "../../src/modules/visual-catalog"
 import { servirVisionFactice } from "./helpers/vision-stub"
 
@@ -145,6 +145,56 @@ async function etatCommercial(
   }
 }
 
+/**
+ * Supprime les NIVEAUX de stock (couples article d'inventaire × emplacement)
+ * des variantes d'une zone, sans toucher au lien variante → article
+ * d'inventaire.
+ *
+ * C'est exactement l'état qui fait lever `ensureInventoryLevels`
+ * (node_modules/@medusajs/inventory/dist/services/inventory-module.js:38-80,
+ * appelé par `updateInventoryLevels_` ligne 200-204) : le SECOND workflow de
+ * la route échoue alors que le PREMIER a déjà écrit les prix. Une panne
+ * atteignable en production — un emplacement de stock remplacé, un article
+ * dépeuplé — et non une injection de faute artificielle.
+ */
+async function supprimerNiveauxDeStock(
+  api: any,
+  getContainer: any,
+  m: CatalogueDeTest,
+  zoneId: string
+): Promise<void> {
+  const catalogue = await detailCatalogue(api, m)
+  const zone = catalogue.zones.find((z: any) => z.id === zoneId)
+  const query = getContainer().resolve(ContainerRegistrationKeys.QUERY)
+
+  const { data: produits } = await query.graph({
+    entity: "product",
+    fields: ["id", "variants.inventory_items.inventory_item_id"],
+    filters: { id: [zone.product.id] },
+  })
+  const idsInventaire: string[] = []
+  for (const variante of (produits[0] as any).variants ?? []) {
+    for (const article of (variante.inventory_items ?? []).filter(Boolean)) {
+      idsInventaire.push(article.inventory_item_id)
+    }
+  }
+
+  const { data: niveaux } = await query.graph({
+    entity: "inventory_level",
+    fields: ["inventory_item_id", "location_id"],
+    filters: { inventory_item_id: idsInventaire },
+  })
+  // Sans ce filet, un changement de modèle ferait passer le test pour de
+  // mauvaises raisons : rien à supprimer, donc rien à faire échouer, donc
+  // une correction entièrement réussie et un test vert qui ne prouve rien.
+  expect((niveaux as any[]).length).toBeGreaterThan(0)
+
+  const inventaire: any = getContainer().resolve(Modules.INVENTORY)
+  for (const niveau of niveaux as any[]) {
+    await inventaire.deleteInventoryLevel(niveau.inventory_item_id, niveau.location_id)
+  }
+}
+
 async function detailCatalogue(api: any, m: CatalogueDeTest) {
   const reponse = await api.get(`/merchant/catalogues/${m.catalogueId}`, {
     headers: { authorization: `Bearer ${m.jeton}` },
@@ -243,6 +293,44 @@ medusaIntegrationTestRunner({
         // l'orchestrateur.
         expect(r.data.avertissement).toContain("photo d'origine")
         expect(await prixDeLaZone(api, m, m.zones[0].id)).toBe(3000)
+      })
+
+      it("garde les prix écrits et le DIT quand seul le stock échoue", async () => {
+        // Les prix et les quantités partent en DEUX `.run()` distincts, donc
+        // en deux transactions : un échec du second ne compense pas le
+        // premier. Rendre alors « la correction a échoué » serait le pire
+        // comportement possible — la commerçante ressaisirait des prix déjà
+        // en base, ou croirait sa vitrine inchangée alors qu'elle ne l'est
+        // pas.
+        const m = await publierUnCatalogue(api, "etal-stock-perdu", "22990000107")
+        await supprimerNiveauxDeStock(api, getContainer, m, m.zones[0].id)
+
+        const vision = await servirVisionFactice({ annotateSeulement: true })
+        let r: any
+        try {
+          r = await api
+            .patch(
+              `/merchant/catalogues/${m.catalogueId}/items`,
+              { items: [{ zone_id: m.zones[0].id, price: "1234", quantity: 9 }] },
+              { headers: { authorization: `Bearer ${m.jeton}` } }
+            )
+            .catch((e: any) => e.response)
+        } finally {
+          await vision.fermer()
+        }
+
+        expect(r.status).toBe(200)
+        expect(r.data.avertissement).toContain("quantités")
+        // L'avertissement ne parle QUE du stock : l'image, elle, a bien été
+        // régénérée (le serveur factice répond sur /annotate).
+        expect(r.data.avertissement).not.toContain("image")
+
+        // La moitié qui compte : le prix écrit par le PREMIER workflow est
+        // bien en base. Un test qui n'assertait que le code de statut
+        // resterait vert sur une route qui rendrait 200 sans rien écrire.
+        expect(await prixDeLaZone(api, m, m.zones[0].id)).toBe(1234)
+        const etat = await etatCommercial(api, getContainer, m, m.zones[0].id)
+        expect(etat.prixXof).toEqual([1234])
       })
 
       it("refuse en français la correction d'une zone jamais mise en vente", async () => {
