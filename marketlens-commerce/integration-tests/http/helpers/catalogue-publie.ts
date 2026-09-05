@@ -1,3 +1,4 @@
+import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import { servirVisionFactice } from "./vision-stub"
 
 /**
@@ -45,21 +46,19 @@ export type CatalogueDeTest = {
 }
 
 /**
- * Inscrit une commerçante, analyse une photo pour elle puis PUBLIE le
- * catalogue — deux zones, deux produits. Tout passe par les vraies routes
- * HTTP : c'est le seul moyen de prouver que `source_image_id` est bien
- * persisté par le chemin réel, et non seulement par un appel direct au
- * workflow.
+ * Inscrit une commerçante et analyse une photo pour elle, SANS publier : le
+ * catalogue reste `draft` et ne porte aucun produit.
+ *
+ * C'est l'état d'un catalogue JAMAIS publié — à ne pas confondre avec celui
+ * d'un catalogue dépublié, qui est `draft` lui aussi mais garde tous ses
+ * produits. Les routes qui distinguent les deux (correction des prix, remise
+ * en ligne) ne peuvent être éprouvées que si le montage sait produire l'un
+ * comme l'autre.
  */
-export async function publierUnCatalogue(
+export async function analyserUnCatalogue(
   api: any,
   handle: string,
-  phone: string,
-  // Nombre de zones réellement MISES EN VENTE. Deux par défaut ; une seule
-  // laisse la seconde zone détectée sans aucun produit — l'état qu'une
-  // commerçante obtient dès qu'elle ne tarife pas tout son étal, et que
-  // l'écran de correction affichera pourtant en ligne.
-  zonesAPublier: 1 | 2 = 2
+  phone: string
 ): Promise<CatalogueDeTest> {
   const email = `${handle}@marketlens.test`
   const inscription = await api.post("/auth/merchant/emailpass/register", {
@@ -87,24 +86,118 @@ export async function publierUnCatalogue(
       corpsPhoto(`Catalogue de ${handle}`),
       { headers: { authorization: `Bearer ${jeton}` } }
     )
-    const catalogueId = analyse.data.catalogue.id as string
-    const catalogueHandle = analyse.data.catalogue.handle as string
-    const zones = analyse.data.zones as { id: string; detected_label: string }[]
-
-    const publication = await api.post(
-      `/merchant/catalogues/${catalogueId}/publish`,
-      {
-        items: [
-          { zone_id: zones[0].id, label: "Pagne wax", price: "5000", quantity: 3, colors: [], sizes: [] },
-          { zone_id: zones[1].id, label: "Tomates fraîches", price: "500", quantity: 10, colors: [], sizes: [] },
-        ].slice(0, zonesAPublier),
-      },
-      { headers: { authorization: `Bearer ${jeton}` } }
-    )
-    expect(publication.status).toBe(200)
-
-    return { jeton, catalogueId, handle: catalogueHandle, zones }
+    return {
+      jeton,
+      catalogueId: analyse.data.catalogue.id as string,
+      handle: analyse.data.catalogue.handle as string,
+      zones: analyse.data.zones as { id: string; detected_label: string }[],
+    }
   } finally {
     await vision.fermer()
+  }
+}
+
+/**
+ * Inscrit une commerçante, analyse une photo pour elle puis PUBLIE le
+ * catalogue — deux zones, deux produits. Tout passe par les vraies routes
+ * HTTP : c'est le seul moyen de prouver que `source_image_id` est bien
+ * persisté par le chemin réel, et non seulement par un appel direct au
+ * workflow.
+ */
+export async function publierUnCatalogue(
+  api: any,
+  handle: string,
+  phone: string,
+  // Nombre de zones réellement MISES EN VENTE. Deux par défaut ; une seule
+  // laisse la seconde zone détectée sans aucun produit — l'état qu'une
+  // commerçante obtient dès qu'elle ne tarife pas tout son étal, et que
+  // l'écran de correction affichera pourtant en ligne.
+  zonesAPublier: 1 | 2 = 2
+): Promise<CatalogueDeTest> {
+  const m = await analyserUnCatalogue(api, handle, phone)
+
+  // La publication redessine l'image annotée : elle a besoin d'un service de
+  // vision, mais jamais de la DÉTECTION, déjà faite par l'analyse.
+  const vision = await servirVisionFactice({ annotateSeulement: true })
+  try {
+    const publication = await api.post(
+      `/merchant/catalogues/${m.catalogueId}/publish`,
+      {
+        items: [
+          { zone_id: m.zones[0].id, label: "Pagne wax", price: "5000", quantity: 3, colors: [], sizes: [] },
+          { zone_id: m.zones[1].id, label: "Tomates fraîches", price: "500", quantity: 10, colors: [], sizes: [] },
+        ].slice(0, zonesAPublier),
+      },
+      { headers: { authorization: `Bearer ${m.jeton}` } }
+    )
+    expect(publication.status).toBe(200)
+  } finally {
+    await vision.fermer()
+  }
+
+  return m
+}
+
+/** Détail du catalogue tel que la commerçante le voit. Partagé : plusieurs
+ *  fichiers lisent le statut, l'URL annotée ou les prix par ce chemin, et
+ *  chacun refaisait le même GET. */
+export async function detailCatalogue(api: any, m: CatalogueDeTest): Promise<any> {
+  const reponse = await api.get(`/merchant/catalogues/${m.catalogueId}`, {
+    headers: { authorization: `Bearer ${m.jeton}` },
+  })
+  return reponse.data.catalogue
+}
+
+/**
+ * Tous les prix XOF posés sur les variantes du produit d'une zone, et les
+ * quantités en stock de leurs articles d'inventaire. Lecture directe, sans
+ * passer par la route : c'est la seule façon de voir qu'une correction
+ * REMPLACE le prix au lieu d'en empiler un second (le détail rendu par la
+ * route ne montre que le premier prix XOF trouvé, donc un doublon y
+ * resterait invisible), et la seule façon de voir qu'un cycle
+ * dépublier / republier n'a touché ni au stock ni aux prix.
+ */
+export async function etatCommercial(
+  api: any,
+  getContainer: any,
+  m: CatalogueDeTest,
+  zoneId: string
+): Promise<{ prixXof: number[]; quantites: number[] }> {
+  const catalogue = await detailCatalogue(api, m)
+  const zone = catalogue.zones.find((z: any) => z.id === zoneId)
+  const query = getContainer().resolve(ContainerRegistrationKeys.QUERY)
+
+  const { data: produits } = await query.graph({
+    entity: "product",
+    fields: [
+      "id",
+      "variants.id",
+      "variants.prices.amount",
+      "variants.prices.currency_code",
+      "variants.inventory_items.inventory_item_id",
+    ],
+    filters: { id: [zone.product.id] },
+  })
+
+  const prixXof: number[] = []
+  const idsInventaire: string[] = []
+  for (const variante of (produits[0] as any).variants ?? []) {
+    for (const prix of variante.prices ?? []) {
+      if (prix.currency_code === "xof") prixXof.push(prix.amount)
+    }
+    for (const article of (variante.inventory_items ?? []).filter(Boolean)) {
+      idsInventaire.push(article.inventory_item_id)
+    }
+  }
+
+  const { data: niveaux } = await query.graph({
+    entity: "inventory_level",
+    fields: ["inventory_item_id", "stocked_quantity"],
+    filters: { inventory_item_id: idsInventaire },
+  })
+
+  return {
+    prixXof,
+    quantites: (niveaux as any[]).map((n) => Number(n.stocked_quantity)),
   }
 }
