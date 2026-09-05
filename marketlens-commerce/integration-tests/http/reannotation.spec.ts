@@ -349,6 +349,42 @@ medusaIntegrationTestRunner({
         expect(etat.prixXof).toEqual([1234])
       })
 
+      it("compose les deux avertissements sans doublon et sans promettre de réessai reprenable", async () => {
+        // Deux pannes sur la MÊME requête : le stock (reprenable) et la
+        // photo d'origine perdue (définitive). La composition doit dire les
+        // deux — chacune une seule fois — et ne promettre « Réessayez » que
+        // si TOUTES les pannes le sont, ce qui n'est pas le cas ici.
+        const m = await publierUnCatalogue(api, "etal-double-echec", "22990000108")
+        await supprimerNiveauxDeStock(api, getContainer, m, m.zones[0].id)
+        const service: any = getContainer().resolve(VISUAL_CATALOG_MODULE)
+        await service.updateVisualCatalogues({
+          id: m.catalogueId,
+          source_image_id: null,
+        })
+
+        const r = await api
+          .patch(
+            `/merchant/catalogues/${m.catalogueId}/items`,
+            { items: [{ zone_id: m.zones[0].id, price: "4321", quantity: 6 }] },
+            { headers: { authorization: `Bearer ${m.jeton}` } }
+          )
+          .catch((e: any) => e.response)
+
+        expect(r.status).toBe(200)
+        expect(r.data.avertissement).toContain("quantités")
+        expect(r.data.avertissement).toContain("photo d'origine")
+        // Une seule phrase « Les prix sont à jour » : le fragment du stock
+        // n'est pas répété, et la promesse de réessai n'apparaît pas
+        // puisque la perte de l'image source n'est pas reprenable.
+        expect(
+          r.data.avertissement.split("Les prix sont à jour").length - 1
+        ).toBe(1)
+        expect(r.data.avertissement).not.toContain("Réessayez")
+
+        // Le prix, lui, est bien écrit malgré les deux pannes.
+        expect(await prixDeLaZone(api, m, m.zones[0].id)).toBe(4321)
+      })
+
       it("refuse en français la correction d'une zone jamais mise en vente", async () => {
         // Contrainte 9 : une zone peut ne porter aucun produit. L'écran de
         // correction affiche UNE LIGNE PAR ZONE ; s'il soumet toutes ses
