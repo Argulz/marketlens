@@ -7,6 +7,10 @@ import { ZoneDetectee } from "../../lib/vision-client"
 export type CreateCatalogueDraftInput = {
   title: string
   source_image_url: string
+  // Identifiant de fichier rendu par le module File (`createFiles` renvoie
+  // `id = key`). C'est LUI que `getAsBuffer` attend : l'URL ne suffit pas,
+  // et en déduire la clé ne marcherait qu'avec le fournisseur local.
+  source_image_id: string
   zones: ZoneDetectee[]
 }
 
@@ -23,6 +27,10 @@ export type CatalogueDraftZone = {
 export type CreateCatalogueDraftOutput = {
   catalogue_id: string
   handle: string
+  // Rendu en sortie parce que la publication en a besoin pour relire
+  // l'image source : sans lui, l'appelant devrait relire le catalogue en
+  // base juste après l'avoir créé.
+  source_image_id: string
   zones: CatalogueDraftZone[]
 }
 
@@ -41,6 +49,7 @@ export const createCatalogueDraftStep = createStep(
       handle: `cat-${crypto.randomUUID().slice(0, 10)}`,
       title: input.title,
       source_image_url: input.source_image_url,
+      source_image_id: input.source_image_id,
     })
 
     // Un seul appel groupé, pas une boucle : la méthode générée
@@ -119,6 +128,7 @@ export const createCatalogueDraftStep = createStep(
     const output: CreateCatalogueDraftOutput = {
       catalogue_id: catalogue.id,
       handle: catalogue.handle,
+      source_image_id: input.source_image_id,
       zones,
     }
 

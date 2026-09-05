@@ -43,6 +43,12 @@ const analyzeCataloguePhotoWorkflow = createWorkflow(
       (d) => ({
         title: d.input.title,
         source_image_url: d.fichiers[0].url,
+        // `id` est la CLÉ du fichier telle que le module File la rend
+        // (`createFiles` : `id = file.key`) — la seule valeur que
+        // `getAsBuffer` accepte. On la persiste dès la création du
+        // brouillon : c'est ce qui permet, plus tard, de relire la photo
+        // d'origine pour la réannoter sans repasser par la détection.
+        source_image_id: d.fichiers[0].id,
         zones: d.zones,
       })
     )
@@ -66,6 +72,7 @@ const analyzeCataloguePhotoWorkflow = createWorkflow(
       transform({ catalogue }, (d) => ({
         catalogue_id: d.catalogue.catalogue_id,
         handle: d.catalogue.handle,
+        source_image_id: d.catalogue.source_image_id,
         zones: d.catalogue.zones,
       }))
     )

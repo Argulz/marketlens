@@ -70,6 +70,22 @@
           "enumItems": [],
           "mappedType": "text"
         },
+        "source_image_id": {
+          "name": "source_image_id",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
         "annotated_image_url": {
           "name": "annotated_image_url",
           "type": "text",
