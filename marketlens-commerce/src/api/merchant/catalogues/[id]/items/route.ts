@@ -27,7 +27,7 @@ const MESSAGE_ECHEC_GENERIQUE =
  *  n'a changé serait le pire comportement possible : la commerçante
  *  ressaisirait ses prix, ou pire, croirait sa vitrine à jour. */
 const AVERTISSEMENT_IMAGE_NON_REGENEREE =
-  "Les prix sont à jour, mais l'image du catalogue n'a pas pu être regénérée : " +
+  "Les prix sont à jour, mais l'image du catalogue n'a pas pu être régénérée : " +
   "la photo d'origine n'est plus disponible."
 
 type ArticleCorrige = { zone_id: string; price: unknown; quantity: unknown }
@@ -256,7 +256,7 @@ export const PATCH = async (req: AuthenticatedMedusaRequest, res: MedusaResponse
     return res.json({
       ok: true,
       avertissement:
-        "Les prix sont à jour, mais l'image du catalogue n'a pas pu être regénérée. Réessayez dans quelques minutes.",
+        "Les prix sont à jour, mais l'image du catalogue n'a pas pu être régénérée. Réessayez dans quelques minutes.",
     })
   }
 
