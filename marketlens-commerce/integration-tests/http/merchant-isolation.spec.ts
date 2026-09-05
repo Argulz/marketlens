@@ -353,6 +353,27 @@ medusaIntegrationTestRunner({
         expect(tentativeCorrection.status).toBe(403)
         expect(tentativeCorrection.data.message).toBe(MESSAGE_INACTIF)
 
+        // Le retrait de la vitrine : le catalogue de `publie` est bien EN
+        // LIGNE, donc un 409 « pas en ligne » serait indiscernable d'un refus
+        // de statut mal placé. Le 403 doit tomber avant toute lecture du
+        // catalogue.
+        const tentativeRetrait = await api
+          .post(`/merchant/catalogues/${publie.id}/unpublish`, {}, { headers: enTete })
+          .catch((e) => e.response)
+        expect(tentativeRetrait.status).toBe(403)
+        expect(tentativeRetrait.data.message).toBe(MESSAGE_INACTIF)
+
+        // La remise en ligne, éprouvée sur le BROUILLON pour la raison
+        // symétrique : sur le catalogue publié, la route rendrait de toute
+        // façon 409 « déjà en ligne ». Un marchand suspendu qui pourrait
+        // republier remettrait en service la vitrine que la suspension vient
+        // de couper.
+        const tentativeRemise = await api
+          .post(`/merchant/catalogues/${brouillon.id}/republish`, {}, { headers: enTete })
+          .catch((e) => e.response)
+        expect(tentativeRemise.status).toBe(403)
+        expect(tentativeRemise.data.message).toBe(MESSAGE_INACTIF)
+
         // La vitrine rend 404 et non 403 : elle ne révèle ni l'existence du
         // catalogue ni la raison du refus. Le message est exactement celui
         // d'un catalogue inexistant.
