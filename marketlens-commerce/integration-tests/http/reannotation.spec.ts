@@ -1,4 +1,5 @@
 import { medusaIntegrationTestRunner } from "@medusajs/test-utils"
+import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import { VISUAL_CATALOG_MODULE } from "../../src/modules/visual-catalog"
 import { servirVisionFactice } from "./helpers/vision-stub"
 
@@ -88,6 +89,57 @@ async function publierUnCatalogue(
   }
 }
 
+/** Tous les prix XOF posés sur les variantes du produit d'une zone, et les
+ *  quantités en stock de leurs articles d'inventaire. Lecture directe, sans
+ *  passer par la route : c'est la seule façon de voir qu'une correction
+ *  REMPLACE le prix au lieu d'en empiler un second (le détail rendu par la
+ *  route ne montre que le premier prix XOF trouvé, donc un doublon y
+ *  resterait invisible). */
+async function etatCommercial(
+  api: any,
+  getContainer: any,
+  m: CatalogueDeTest,
+  zoneId: string
+): Promise<{ prixXof: number[]; quantites: number[] }> {
+  const catalogue = await detailCatalogue(api, m)
+  const zone = catalogue.zones.find((z: any) => z.id === zoneId)
+  const query = getContainer().resolve(ContainerRegistrationKeys.QUERY)
+
+  const { data: produits } = await query.graph({
+    entity: "product",
+    fields: [
+      "id",
+      "variants.id",
+      "variants.prices.amount",
+      "variants.prices.currency_code",
+      "variants.inventory_items.inventory_item_id",
+    ],
+    filters: { id: [zone.product.id] },
+  })
+
+  const prixXof: number[] = []
+  const idsInventaire: string[] = []
+  for (const variante of (produits[0] as any).variants ?? []) {
+    for (const prix of variante.prices ?? []) {
+      if (prix.currency_code === "xof") prixXof.push(prix.amount)
+    }
+    for (const article of (variante.inventory_items ?? []).filter(Boolean)) {
+      idsInventaire.push(article.inventory_item_id)
+    }
+  }
+
+  const { data: niveaux } = await query.graph({
+    entity: "inventory_level",
+    fields: ["inventory_item_id", "stocked_quantity"],
+    filters: { inventory_item_id: idsInventaire },
+  })
+
+  return {
+    prixXof,
+    quantites: (niveaux as any[]).map((n) => Number(n.stocked_quantity)),
+  }
+}
+
 async function detailCatalogue(api: any, m: CatalogueDeTest) {
   const reponse = await api.get(`/merchant/catalogues/${m.catalogueId}`, {
     headers: { authorization: `Bearer ${m.jeton}` },
@@ -141,6 +193,18 @@ medusaIntegrationTestRunner({
         // La zone non corrigée garde son prix : la correction ne touche que
         // les articles envoyés.
         expect(await prixDeLaZone(api, m, m.zones[1].id)).toBe(500)
+
+        // Le prix est REMPLACÉ, pas empilé : un second ensemble de prix
+        // resterait invisible du détail rendu par la route (qui ne montre
+        // que le premier prix XOF trouvé) tout en faussant la vitrine.
+        // Et la quantité suit vraiment le stock.
+        const corrigee = await etatCommercial(api, getContainer, m, m.zones[0].id)
+        expect(corrigee.prixXof).toEqual([2500])
+        expect(corrigee.quantites).toEqual([7])
+
+        const intacte = await etatCommercial(api, getContainer, m, m.zones[1].id)
+        expect(intacte.prixXof).toEqual([500])
+        expect(intacte.quantites).toEqual([10])
       })
 
       it("refuse en français quand l'image source n'est plus disponible", async () => {
