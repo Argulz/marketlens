@@ -327,6 +327,16 @@ medusaIntegrationTestRunner({
           const service = getContainer().resolve<VisualCatalogModuleService>(VISUAL_CATALOG_MODULE)
           const cat = await service.retrieveVisualCatalogue(brouillon.catalogue_id)
           expect(cat.status).toBe("draft") // la publication n'a pas eu lieu
+          // Aucune URL annotée ne subsiste : c'est le seul filet possible
+          // aujourd'hui sur la compensation d'`enregistrerUrlStep`. LIMITE
+          // ASSUMÉE : avec `statutAnnotate: 502`, l'échec tombe dans
+          // `annoterStep`, donc AVANT qu'`enregistrerUrlStep` n'ait écrit
+          // quoi que ce soit — cette assertion vérifie qu'une publication
+          // échouée ne laisse pas d'URL derrière elle, pas que le corps de
+          // la compensation s'exécute. Elle deviendrait rouge le jour où
+          // l'ordre des étapes changerait au point qu'une URL soit posée
+          // avant l'échec sans être défaite.
+          expect(cat.annotated_image_url).toBeNull()
         } finally {
           await vision.fermer()
         }
