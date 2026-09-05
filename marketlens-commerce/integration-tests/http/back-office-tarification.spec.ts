@@ -1,4 +1,5 @@
 import { medusaIntegrationTestRunner } from "@medusajs/test-utils"
+import { SCRIPT_STOCK } from "../../src/lib/pages/stock"
 import { servirVisionFactice } from "./helpers/vision-stub"
 
 jest.setTimeout(90 * 1000)
@@ -121,17 +122,20 @@ medusaIntegrationTestRunner({
         const p = await api.get(`/marchand/catalogues/${catalogueId}`, { headers: { cookie } })
         expect(p.status).toBe(200)
 
-        // R14 : les fonctions pures de src/lib/pages/stock.ts (couvertes par
-        // integration-tests/modules/stock.spec.ts) sont injectées dans la
-        // page via `.toString()`, pas recopiées dans le gabarit — leur
-        // présence en tant que déclarations de fonction dans le script servi
-        // en est la preuve à ce niveau (l'exécution du calcul lui-même n'est
-        // vérifiable qu'au niveau unitaire, aucun navigateur n'intervenant
-        // dans cette suite HTTP).
-        expect(p.data).toContain("function lireQuantite(")
-        expect(p.data).toContain("function compterDeclinaisons(")
-        expect(p.data).toContain("function calculerStockTotal(")
-        expect(p.data).toContain("function texteStock(")
+        // R14 : `SCRIPT_STOCK` (src/lib/pages/stock.ts, couvert par
+        // integration-tests/modules/stock.spec.ts, garde `new Function`
+        // comprise) doit se retrouver OCTET POUR OCTET dans la page — pas
+        // seulement les noms des fonctions qu'il déclare. Une simple
+        // vérification de présence resterait verte même si la route
+        // recopiait une version divergente, ou si `stock.ts` gagnait un
+        // import ou une constante de portée module qui casserait la page en
+        // silence dans le navigateur (rien de tel n'apparaîtrait dans une
+        // vérification par présence). L'identité exacte de la chaîne est ici
+        // la seule preuve, au niveau HTTP, que ce qui est testé
+        // unitairement est bien ce qui est livré (l'exécution du calcul
+        // lui-même n'est vérifiable qu'au niveau unitaire, aucun navigateur
+        // n'intervenant dans cette suite HTTP).
+        expect(p.data).toContain(SCRIPT_STOCK)
 
         // R13 : `recalculer()` (affichage) et le gestionnaire de publication
         // (envoi) doivent lire la quantité par le même appel — deux occurrences
