@@ -8,9 +8,19 @@ export async function servirVisionFactice(reponses: {
   annotate?: Buffer
   statutDetect?: number
   statutAnnotate?: number
+  /** Ferme `/detect` en 500 : le serveur ne sert plus QUE l'annotation.
+   *  C'est ce qui permet de prouver qu'un chemin (la regeneration d'image
+   *  apres correction des prix) n'appelle jamais la detection — s'il le
+   *  faisait, il echouerait au lieu de rester vert. Une simple absence de
+   *  serveur ne le prouverait pas : l'annotation echouerait elle aussi. */
+  annotateSeulement?: boolean
 }) {
   const serveur = http.createServer((req, res) => {
     if (req.url?.startsWith("/detect")) {
+      if (reponses.annotateSeulement) {
+        res.writeHead(500)
+        return res.end("{}")
+      }
       if (reponses.statutDetect && reponses.statutDetect >= 400) {
         res.writeHead(reponses.statutDetect)
         return res.end("{}")

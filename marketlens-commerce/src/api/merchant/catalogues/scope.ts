@@ -127,6 +127,11 @@ export type CatalogueDuMarchand = {
   title: string
   status: string
   source_image_url: string
+  // Clé de fichier de la photo d'origine, seule valeur que
+  // `getAsBuffer` accepte. `null` pour les catalogues créés avant la
+  // colonne : leur image annotée n'est plus régénérable, ce que les
+  // appelants traduisent en message français plutôt qu'en panne.
+  source_image_id: string | null
   annotated_image_url: string | null
 }
 
@@ -188,6 +193,7 @@ export type DetailCatalogue = {
   title: string
   status: string
   source_image_url: string
+  source_image_id: string | null
   annotated_image_url: string | null
   zones: ZoneDetail[]
 }
@@ -229,6 +235,7 @@ export async function detailCatalogueDuMarchand(
       "title",
       "status",
       "source_image_url",
+      "source_image_id",
       "annotated_image_url",
       "zones.id",
       "zones.x",
@@ -260,6 +267,7 @@ export async function detailCatalogueDuMarchand(
     title: c.title,
     status: c.status,
     source_image_url: c.source_image_url,
+    source_image_id: c.source_image_id ?? null,
     annotated_image_url: c.annotated_image_url ?? null,
     zones: (c.zones ?? []).map((z: any) => ({
       id: z.id,
