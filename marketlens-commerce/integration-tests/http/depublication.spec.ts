@@ -69,6 +69,16 @@ medusaIntegrationTestRunner({
 
         const idsAvant = await idsProduits(api, m)
         expect(idsAvant.length).toBeGreaterThan(0)
+        // D3 dit « produits, STOCK et HISTORIQUE intacts ». Les seuls
+        // identifiants ne le prouvent pas : un cycle qui viderait les niveaux
+        // d'inventaire ou effacerait les prix XOF les laisserait inchangés.
+        const commercialAvant = await Promise.all(
+          m.zones.map((z) => etatCommercial(api, getContainer, m, z.id))
+        )
+        expect(commercialAvant).toEqual([
+          { prixXof: [5000], quantites: [3] },
+          { prixXof: [500], quantites: [10] },
+        ])
         const imageAvant = await urlAnnotee(api, m)
         expect(imageAvant).toBeTruthy()
 
@@ -84,8 +94,13 @@ medusaIntegrationTestRunner({
         // La vitrine cesse de servir…
         const apres = await api.get(`/c/${m.handle}`).catch((e: any) => e.response)
         expect(apres.status).toBe(404)
-        // …mais les produits, eux, sont intacts.
+        // …mais les produits, eux, sont intacts — prix et stock compris.
         expect(await idsProduits(api, m)).toEqual(idsAvant)
+        expect(
+          await Promise.all(
+            m.zones.map((z) => etatCommercial(api, getContainer, m, z.id))
+          )
+        ).toEqual(commercialAvant)
         expect(await statutCatalogue(api, m)).toBe("draft")
 
         // `annotateSeulement` ferme /detect en 500 : si la republication
@@ -122,6 +137,11 @@ medusaIntegrationTestRunner({
         // unique des handles produits, puisque le handle publié contient le
         // `zone_id`, qui est stable d'une publication à l'autre.
         expect(await idsProduits(api, m)).toEqual(idsAvant)
+        expect(
+          await Promise.all(
+            m.zones.map((z) => etatCommercial(api, getContainer, m, z.id))
+          )
+        ).toEqual(commercialAvant)
       })
 
       it("refuse de dépublier un brouillon, et de republier un catalogue déjà en ligne", async () => {
@@ -273,6 +293,40 @@ medusaIntegrationTestRunner({
         expect(await statutCatalogue(api, m)).toBe("draft")
       })
 
+      it("rend 404, jamais 403, sur le catalogue d'une autre commerçante", async () => {
+        // Les contraintes 1 et 2 exigent que LA ROUTE soit éprouvée : que le
+        // cloisonnement de `catalogueDuMarchand` soit testé ailleurs ne dit
+        // pas que ces deux routes-ci l'appellent.
+        const yaa = await publierUnCatalogue(api, "etal-cycle-yaa", "22990000116")
+        const kwame = await analyserUnCatalogue(api, "etal-cycle-kwame", "22990000117")
+        const chezKwame = { headers: { authorization: `Bearer ${kwame.jeton}` } }
+
+        // Le catalogue de Yaa est EN LIGNE : sur un brouillon, un 409 d'état
+        // masquerait un contrôle d'appartenance absent.
+        const retrait = await api
+          .post(`/merchant/catalogues/${yaa.catalogueId}/unpublish`, {}, chezKwame)
+          .catch((e: any) => e.response)
+        expect(retrait.status).toBe(404)
+        expect(retrait.data.message).toBe("Catalogue introuvable")
+        expect(await statutCatalogue(api, yaa)).toBe("published")
+
+        // La remise en ligne s'éprouve sur le BROUILLON, raison symétrique.
+        expect(
+          (
+            await api.post(
+              `/merchant/catalogues/${yaa.catalogueId}/unpublish`,
+              {},
+              { headers: { authorization: `Bearer ${yaa.jeton}` } }
+            )
+          ).status
+        ).toBe(200)
+        const remise = await api
+          .post(`/merchant/catalogues/${yaa.catalogueId}/republish`, {}, chezKwame)
+          .catch((e: any) => e.response)
+        expect(remise.status).toBe(404)
+        expect(remise.data.message).toBe("Catalogue introuvable")
+        expect(await statutCatalogue(api, yaa)).toBe("draft")
+      })
     })
   },
 })
