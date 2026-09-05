@@ -287,18 +287,31 @@ export const PATCH = async (req: AuthenticatedMedusaRequest, res: MedusaResponse
       `PATCH /merchant/catalogues/${detail.id}/items : catalogue introuvable après mise à jour.`
     )
     echecs.push(AVERTISSEMENT_IMAGE)
-    return res.json({ ok: true, avertissement: phraseAvertissement(echecs) })
+    return res.json({
+      ok: true,
+      annotated_image_url: detail.annotated_image_url,
+      avertissement: phraseAvertissement(echecs),
+    })
   }
 
   try {
-    await annoterCatalogueWorkflow(req.scope).run({
+    const { result } = await annoterCatalogueWorkflow(req.scope).run({
       input: {
         catalogue_id: detailAJour.id,
         source_image_id: detailAJour.source_image_id,
         produits: produitsAAnnoter(detailAJour),
       },
     })
-    return res.json({ ok: true, avertissement: phraseAvertissement(echecs) })
+    // L'URL de la NOUVELLE image, rendue à l'appelant : sans elle, l'écran
+    // de correction doit refaire un GET du détail pour rafraîchir la
+    // vignette qu'il vient de faire redessiner. Elle rend aussi le
+    // contraste succès / avertissement explicite — sur les chemins d'échec,
+    // c'est l'ANCIENNE URL, celle qui est réellement en base, qui repart.
+    return res.json({
+      ok: true,
+      annotated_image_url: result.annotated_image_url,
+      avertissement: phraseAvertissement(echecs),
+    })
   } catch (e: any) {
     // Le rejet d'un `.run()` de workflow n'est pas l'instance d'origine :
     // seul `.name` survit à la sérialisation de l'orchestrateur.
@@ -317,6 +330,10 @@ export const PATCH = async (req: AuthenticatedMedusaRequest, res: MedusaResponse
       echecs.push(AVERTISSEMENT_IMAGE)
     }
 
-    return res.json({ ok: true, avertissement: phraseAvertissement(echecs) })
+    return res.json({
+      ok: true,
+      annotated_image_url: detailAJour.annotated_image_url,
+      avertissement: phraseAvertissement(echecs),
+    })
   }
 }

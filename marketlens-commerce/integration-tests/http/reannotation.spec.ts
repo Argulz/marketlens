@@ -231,6 +231,7 @@ medusaIntegrationTestRunner({
         // régénération repassait par /detect, ce test échouerait — c'est le
         // point.
         const vision = await servirVisionFactice({ annotateSeulement: true })
+        let rendue: string
         try {
           const r = await api.patch(
             `/merchant/catalogues/${m.catalogueId}/items`,
@@ -239,9 +240,18 @@ medusaIntegrationTestRunner({
           )
           expect(r.status).toBe(200)
           expect(r.data.avertissement).toBeUndefined()
+          rendue = r.data.annotated_image_url
         } finally {
           await vision.fermer()
         }
+
+        // L'URL de la NOUVELLE image est rendue directement : l'écran de
+        // correction n'a pas à refaire un GET du détail pour rafraîchir la
+        // vignette qu'il vient de faire redessiner.
+        expect(rendue).toBeTruthy()
+        expect(rendue).not.toBe(avant)
+        // Et c'est bien celle qui est en base, pas une valeur inventée.
+        expect(await urlAnnotee(api, m)).toBe(rendue)
 
         expect(await urlAnnotee(api, m)).not.toBe(avant)
         expect(await prixDeLaZone(api, m, m.zones[0].id)).toBe(2500)
@@ -264,6 +274,7 @@ medusaIntegrationTestRunner({
 
       it("refuse en français quand l'image source n'est plus disponible", async () => {
         const m = await publierUnCatalogue(api, "etal-source-perdue", "22990000102")
+        const avant = await urlAnnotee(api, m)
         // Simule un catalogue d'avant la migration : identifiant source absent.
         const service: any = getContainer().resolve(VISUAL_CATALOG_MODULE)
         await service.updateVisualCatalogues({
@@ -292,6 +303,11 @@ medusaIntegrationTestRunner({
         // mécanisme `.name`, seule chose qui survit à la sérialisation de
         // l'orchestrateur.
         expect(r.data.avertissement).toContain("photo d'origine")
+        // L'URL rendue est l'ANCIENNE, celle qui est réellement en base :
+        // le contraste succès / avertissement doit se lire aussi dans la
+        // charge utile, pas seulement dans la phrase.
+        expect(r.data.annotated_image_url).toBe(avant)
+        expect(await urlAnnotee(api, m)).toBe(avant)
         expect(await prixDeLaZone(api, m, m.zones[0].id)).toBe(3000)
       })
 
