@@ -84,14 +84,16 @@ export const POST = async (req: AuthenticatedMedusaRequest, res: MedusaResponse)
     })
   }
 
+  let annotatedImageUrl: string
   try {
-    await annoterCatalogueWorkflow(req.scope).run({
+    const { result } = await annoterCatalogueWorkflow(req.scope).run({
       input: {
         catalogue_id: detail.id,
         source_image_id: detail.source_image_id,
         produits,
       },
     })
+    annotatedImageUrl = result.annotated_image_url
   } catch (e: any) {
     // Le rejet d'un `.run()` de workflow n'est pas l'instance d'origine :
     // l'orchestrateur la remplace par une copie en objet simple, dont seul
@@ -132,5 +134,8 @@ export const POST = async (req: AuthenticatedMedusaRequest, res: MedusaResponse)
     return res.status(500).json({ message: MESSAGE_ECHEC_GENERIQUE })
   }
 
-  res.json({ ok: true })
+  // L'URL de la nouvelle image, rendue à l'appelant par symétrie avec la
+  // correction des prix : sans elle, l'écran doit refaire un GET du détail
+  // pour rafraîchir la vignette qu'il vient de faire redessiner.
+  res.json({ ok: true, annotated_image_url: annotatedImageUrl })
 }

@@ -28,6 +28,10 @@ async function statutCatalogue(api: any, m: CatalogueDeTest): Promise<string> {
   return (await detailCatalogue(api, m)).status
 }
 
+async function urlAnnotee(api: any, m: CatalogueDeTest): Promise<string> {
+  return (await detailCatalogue(api, m)).annotated_image_url
+}
+
 /**
  * Coupe le STOCKAGE le temps d'un appel : `getAsBuffer` échoue avec un code
  * errno qui n'est pas `ENOENT`.
@@ -65,6 +69,8 @@ medusaIntegrationTestRunner({
 
         const idsAvant = await idsProduits(api, m)
         expect(idsAvant.length).toBeGreaterThan(0)
+        const imageAvant = await urlAnnotee(api, m)
+        expect(imageAvant).toBeTruthy()
 
         expect((await api.get(`/c/${m.handle}`)).status).toBe(200)
 
@@ -87,6 +93,7 @@ medusaIntegrationTestRunner({
         // verte. Une simple absence de serveur ne le prouverait pas —
         // l'annotation échouerait elle aussi.
         const vision = await servirVisionFactice({ annotateSeulement: true })
+        let imageRendue: string
         try {
           const rep = await api.post(
             `/merchant/catalogues/${m.catalogueId}/republish`,
@@ -94,9 +101,21 @@ medusaIntegrationTestRunner({
             { headers: enTete }
           )
           expect(rep.status).toBe(200)
+          imageRendue = rep.data.annotated_image_url
         } finally {
           await vision.fermer()
         }
+
+        // La republication RÉGÉNÈRE l'image : c'est la moitié de D3 que rien
+        // ne vérifiait directement — une route qui se contenterait de
+        // repasser le statut à `published` servirait une vitrine dont
+        // l'image daterait d'avant les corrections de prix.
+        expect(imageRendue).toBeTruthy()
+        expect(imageRendue).not.toBe(imageAvant)
+        // Et c'est bien celle qui est en base, pas une valeur inventée : la
+        // route la rend directement, comme la correction des prix, pour que
+        // l'écran n'ait pas à refaire un GET du détail.
+        expect(await urlAnnotee(api, m)).toBe(imageRendue)
 
         expect((await api.get(`/c/${m.handle}`)).status).toBe(200)
         // Aucun produit créé : c'est ce qui aurait explosé sur l'index
